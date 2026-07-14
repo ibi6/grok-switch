@@ -1,8 +1,24 @@
-import { useEffect, useState } from "react";
-import { LoaderCircle, X } from "lucide-react";
-import type { ApiBackend, Provider } from "../lib/types";
-import { maskSecret } from "../lib/mask";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  ChevronDown,
+  Eye,
+  EyeOff,
+  Lightbulb,
+  LoaderCircle,
+  Plus,
+  Trash2,
+  Zap,
+} from "lucide-react";
+import type { ApiBackend, ModelEntry, Provider } from "../lib/types";
 import * as api from "../lib/api";
+
+type ExtraModelRow = {
+  key: string;
+  displayName: string;
+  model: string;
+  largeContext: boolean;
+};
 
 export type ProviderFormValues = {
   name: string;
@@ -10,17 +26,21 @@ export type ProviderFormValues = {
   apiKey: string;
   apiBackend: ApiBackend;
   defaultModel: string;
+  defaultDisplayName: string;
+  defaultLargeContext: boolean;
   appendV1: boolean;
-  contextWindow: number;
+  fullUrlMode: boolean;
   websiteUrl: string;
   notes: string;
+  fallbackModel: string;
+  extras: ExtraModelRow[];
+  advancedOpen: boolean;
 };
 
 function ensureTrailingSlashFree(url: string): string {
   return url.replace(/\/+$/, "");
 }
 
-/** Stable section id for [model.gs-<id>] — unique per provider+model. */
 function slugify(s: string): string {
   const slug = s
     .toLowerCase()
@@ -37,6 +57,12 @@ function applyAppendV1(baseUrl: string, appendV1: boolean): string {
   return `${clean}/v1`;
 }
 
+function avatarLabel(name: string): string {
+  const t = name.trim();
+  if (!t) return "新";
+  return t.slice(0, 1).toUpperCase();
+}
+
 function fromProvider(p?: Provider | null): ProviderFormValues {
   if (!p) {
     return {
@@ -44,27 +70,46 @@ function fromProvider(p?: Provider | null): ProviderFormValues {
       baseUrl: "",
       apiKey: "",
       apiBackend: "chat_completions",
-      defaultModel: "grok-4",
+      defaultModel: "grok-4.5",
+      defaultDisplayName: "grok-4.5",
+      defaultLargeContext: true,
       appendV1: true,
-      contextWindow: 200_000,
+      fullUrlMode: false,
       websiteUrl: "",
       notes: "",
+      fallbackModel: "",
+      extras: [],
+      advancedOpen: true,
     };
   }
+
   const endsWithV1 = /\/v1$/i.test(p.baseUrl);
+  const defaultEntry =
+    p.models.find((m) => m.id === p.defaultModelEntryId) ?? p.models[0];
+  const extras = p.models
+    .filter((m) => m.id !== (defaultEntry?.id ?? p.defaultModelEntryId))
+    .map((m, i) => ({
+      key: `ex-${m.id}-${i}`,
+      displayName: m.name || m.model,
+      model: m.model,
+      largeContext: (m.contextWindow ?? p.contextWindow) >= 1_000_000,
+    }));
+
   return {
     name: p.name,
     baseUrl: endsWithV1 ? p.baseUrl.replace(/\/v1$/i, "") : p.baseUrl,
     apiKey: p.apiKey,
     apiBackend: p.apiBackend,
-    defaultModel:
-      p.models.find((m) => m.id === p.defaultModelEntryId)?.model ??
-      p.models[0]?.model ??
-      "",
+    defaultModel: defaultEntry?.model ?? "",
+    defaultDisplayName: defaultEntry?.name ?? defaultEntry?.model ?? "",
+    defaultLargeContext: (defaultEntry?.contextWindow ?? p.contextWindow) >= 1_000_000,
     appendV1: endsWithV1,
-    contextWindow: p.contextWindow || 200_000,
+    fullUrlMode: !endsWithV1 && /\/v\d+/i.test(p.baseUrl),
     websiteUrl: p.websiteUrl ?? "",
     notes: p.notes ?? "",
+    fallbackModel: "",
+    extras,
+    advancedOpen: true,
   };
 }
 
@@ -96,64 +141,84 @@ export function ProviderForm({
     }
   }, [open, initial]);
 
-  if (!open) return null;
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   const set = <K extends keyof ProviderFormValues>(
     key: K,
     value: ProviderFormValues[K],
   ) => setValues((v) => ({ ...v, [key]: value }));
 
+  const authHint = useMemo(() => {
+    if (values.apiBackend === "messages") {
+      return "x-api-key（Anthropic Messages）";
+    }
+    return "Authorization: Bearer（OpenAI 兼容）";
+  }, [values.apiBackend]);
+
+  const resolvedBase = useMemo(() => {
+    if (values.fullUrlMode) return ensureTrailingSlashFree(values.baseUrl.trim());
+    return applyAppendV1(values.baseUrl, values.appendV1);
+  }, [values.baseUrl, values.appendV1, values.fullUrlMode]);
+
+  if (!open) return null;
+
   const buildProvider = (): Provider => {
     const now = Math.floor(Date.now() / 1000);
-    const baseUrl = applyAppendV1(values.baseUrl, values.appendV1);
     const name = values.name.trim();
     const defaultModel = values.defaultModel.trim();
-    // Keep existing entry id on edit; generate unique slug for new providers
-    // so two providers don't both write [model.gs-m1].
+    const display = (values.defaultDisplayName.trim() || defaultModel);
     const modelId =
       initial?.defaultModelEntryId ||
       `${slugify(name)}-${slugify(defaultModel)}`;
-    const existingModels = initial?.models ?? [];
-    const models =
-      existingModels.length > 0
-        ? existingModels.map((m) =>
-            m.id === modelId
-              ? {
-                  ...m,
-                  model: defaultModel,
-                  name: defaultModel,
-                  contextWindow: values.contextWindow,
-                }
-              : m,
-          )
-        : [
-            {
-              id: modelId,
-              model: defaultModel,
-              name: defaultModel,
-              contextWindow: values.contextWindow,
-            },
-          ];
+    const defaultCtx = values.defaultLargeContext ? 1_000_000 : 200_000;
 
-    // Ensure default entry always exists (edit path if id mismatched).
-    if (!models.some((m) => m.id === modelId)) {
-      models.unshift({
+    const models: ModelEntry[] = [
+      {
         id: modelId,
         model: defaultModel,
-        name: defaultModel,
-        contextWindow: values.contextWindow,
+        name: display,
+        contextWindow: defaultCtx,
+      },
+    ];
+
+    for (const row of values.extras) {
+      const m = row.model.trim();
+      if (!m) continue;
+      const id = `${slugify(name)}-${slugify(m)}`;
+      if (models.some((x) => x.id === id || x.model === m)) continue;
+      models.push({
+        id,
+        model: m,
+        name: row.displayName.trim() || m,
+        contextWindow: row.largeContext ? 1_000_000 : 200_000,
       });
+    }
+
+    // Preserve unknown existing models not represented in form rows
+    if (initial?.models?.length) {
+      for (const m of initial.models) {
+        if (!models.some((x) => x.id === m.id || x.model === m.model)) {
+          models.push(m);
+        }
+      }
     }
 
     return {
       id: initial?.id ?? crypto.randomUUID(),
       name,
-      baseUrl,
+      baseUrl: resolvedBase,
       apiKey: values.apiKey.trim(),
       apiBackend: values.apiBackend,
       defaultModelEntryId: modelId,
       models,
-      contextWindow: values.contextWindow,
+      contextWindow: defaultCtx,
       websiteUrl: values.websiteUrl.trim() || undefined,
       notes: values.notes.trim() || undefined,
       source: initial?.source ?? "manual",
@@ -163,15 +228,18 @@ export function ProviderForm({
   };
 
   const onTest = async () => {
+    if (!values.baseUrl.trim() || !values.apiKey.trim()) {
+      notify("请先填写请求地址和 API Key", "error");
+      return;
+    }
     setTesting(true);
     try {
-      const draft = {
-        baseUrl: applyAppendV1(values.baseUrl, values.appendV1),
+      const res = await api.testProviderDraft({
+        baseUrl: resolvedBase,
         apiKey: values.apiKey.trim(),
         apiBackend: values.apiBackend,
-        model: values.defaultModel.trim(),
-      };
-      const res = await api.testProviderDraft(draft);
+        model: values.defaultModel.trim() || "grok-4.5",
+      });
       if (!res.ok || !res.data) {
         notify(res.error ?? "测通失败", "error");
         return;
@@ -190,7 +258,11 @@ export function ProviderForm({
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!values.name.trim() || !values.baseUrl.trim() || !values.apiKey.trim()) {
-      notify("名称、Base URL 和 API Key 为必填", "error");
+      notify("供应商名称、请求地址和 API Key 为必填", "error");
+      return;
+    }
+    if (!values.defaultModel.trim()) {
+      notify("请填写默认实际请求模型", "error");
       return;
     }
     setSaving(true);
@@ -209,146 +281,374 @@ export function ProviderForm({
     }
   };
 
+  const addExtra = () => {
+    setValues((v) => ({
+      ...v,
+      extras: [
+        ...v.extras,
+        {
+          key: `ex-${Date.now()}`,
+          displayName: "",
+          model: "",
+          largeContext: false,
+        },
+      ],
+    }));
+  };
+
+  const updateExtra = (
+    key: string,
+    patch: Partial<Omit<ExtraModelRow, "key">>,
+  ) => {
+    setValues((v) => ({
+      ...v,
+      extras: v.extras.map((r) => (r.key === key ? { ...r, ...patch } : r)),
+    }));
+  };
+
+  const removeExtra = (key: string) => {
+    setValues((v) => ({
+      ...v,
+      extras: v.extras.filter((r) => r.key !== key),
+    }));
+  };
+
+  const quickFillModels = () => {
+    const base = values.defaultModel.trim() || "grok-4.5";
+    setValues((v) => ({
+      ...v,
+      defaultDisplayName: base,
+      defaultModel: base,
+      defaultLargeContext: true,
+      extras: [
+        {
+          key: "ex-fast",
+          displayName: `${base}-fast`,
+          model: `${base}-fast`,
+          largeContext: false,
+        },
+        {
+          key: "ex-lite",
+          displayName: `${base}-lite`,
+          model: `${base}-lite`,
+          largeContext: false,
+        },
+      ],
+      advancedOpen: true,
+    }));
+    notify("已填充示例模型映射，请按中转站实际模型名修改");
+  };
+
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <form className="modal-card" onSubmit={onSubmit}>
-        <div className="modal-head">
-          <div>
-            <span className="label">{editing ? "编辑供应商" : "新建供应商"}</span>
-            <h2>{editing ? "更新供应商" : "添加供应商"}</h2>
-          </div>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭">
-            <X size={18} />
+    <div className="sheet-overlay" role="dialog" aria-modal="true">
+      <form className="sheet-panel" onSubmit={onSubmit}>
+        <header className="sheet-top">
+          <button
+            type="button"
+            className="sheet-back"
+            onClick={onClose}
+            aria-label="返回"
+          >
+            <ArrowLeft size={18} />
           </button>
-        </div>
-
-        <div className="form-grid">
-          <label className="field">
-            <span>名称</span>
-            <input
-              value={values.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="myallapi"
-              required
-            />
-          </label>
-
-          <label className="field">
-            <span>协议</span>
-            <select
-              value={values.apiBackend}
-              onChange={(e) => set("apiBackend", e.target.value as ApiBackend)}
+          <h1>{editing ? "编辑供应商" : "添加供应商"}</h1>
+          <div className="sheet-top-actions">
+            <button
+              type="button"
+              className="ghost-btn"
+              onClick={() => void onTest()}
+              disabled={testing || saving}
             >
-              <option value="chat_completions">OpenAI · Chat Completions</option>
-              <option value="responses">OpenAI · Responses</option>
-              <option value="messages">Anthropic · Messages</option>
-            </select>
-          </label>
+              {testing ? (
+                <LoaderCircle className="spin" size={15} />
+              ) : (
+                <Zap size={15} />
+              )}
+              测通
+            </button>
+            <button type="submit" className="primary-btn" disabled={saving}>
+              {saving ? <LoaderCircle className="spin" size={15} /> : null}
+              保存
+            </button>
+          </div>
+        </header>
 
-          <label className="field field-span">
-            <span>Base URL</span>
+        <div className="sheet-body">
+          <div className="sheet-avatar-wrap">
+            <div className="sheet-avatar">{avatarLabel(values.name)}</div>
+          </div>
+
+          <div className="sheet-row-2">
+            <label className="sheet-field">
+              <span>供应商名称</span>
+              <input
+                value={values.name}
+                onChange={(e) => set("name", e.target.value)}
+                placeholder="服务器 cpa"
+                required
+              />
+            </label>
+            <label className="sheet-field">
+              <span>备注</span>
+              <input
+                value={values.notes}
+                onChange={(e) => set("notes", e.target.value)}
+                placeholder="例如：公司专用账号"
+              />
+            </label>
+          </div>
+
+          <label className="sheet-field">
+            <span>官网链接</span>
             <input
-              value={values.baseUrl}
-              onChange={(e) => set("baseUrl", e.target.value)}
-              placeholder="https://api.example.com"
-              required
+              value={values.websiteUrl}
+              onChange={(e) => set("websiteUrl", e.target.value)}
+              placeholder="https://example.com"
             />
           </label>
 
-          <label className="check-field field-span">
-            <input
-              type="checkbox"
-              checked={values.appendV1}
-              onChange={(e) => set("appendV1", e.target.checked)}
-            />
-            <span>
-              自动追加 <code>/v1</code>
-            </span>
-          </label>
-
-          <label className="field field-span">
+          <label className="sheet-field">
             <span>API Key</span>
-            <div className="secret-row">
+            <div className="sheet-secret">
               <input
                 type={revealKey ? "text" : "password"}
                 value={values.apiKey}
                 onChange={(e) => set("apiKey", e.target.value)}
                 placeholder="sk-..."
                 required
+                autoComplete="off"
               />
               <button
                 type="button"
-                className="ghost-btn"
+                className="sheet-icon-inline"
                 onClick={() => setRevealKey((v) => !v)}
+                aria-label={revealKey ? "隐藏密钥" : "显示密钥"}
               >
-                {revealKey ? "隐藏" : "显示"}
+                {revealKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            {!revealKey && values.apiKey ? (
-              <small className="field-hint mono">{maskSecret(values.apiKey)}</small>
-            ) : null}
           </label>
 
-          <label className="field">
-            <span>默认模型</span>
+          <div className="sheet-field">
+            <div className="sheet-label-row">
+              <span>请求地址</span>
+              <div className="sheet-inline-toggles">
+                <button
+                  type="button"
+                  className={`sheet-chip ${values.fullUrlMode ? "on" : ""}`}
+                  onClick={() => {
+                    set("fullUrlMode", !values.fullUrlMode);
+                    if (!values.fullUrlMode) set("appendV1", false);
+                    else set("appendV1", true);
+                  }}
+                >
+                  完整 URL
+                </button>
+                {!values.fullUrlMode && (
+                  <button
+                    type="button"
+                    className={`sheet-chip ${values.appendV1 ? "on" : ""}`}
+                    onClick={() => set("appendV1", !values.appendV1)}
+                  >
+                    自动 /v1
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="sheet-link-btn"
+                  onClick={() => void onTest()}
+                  disabled={testing}
+                >
+                  <Zap size={14} /> 管理与测通
+                </button>
+              </div>
+            </div>
             <input
-              value={values.defaultModel}
-              onChange={(e) => set("defaultModel", e.target.value)}
-              placeholder="grok-4.5"
+              value={values.baseUrl}
+              onChange={(e) => set("baseUrl", e.target.value)}
+              placeholder="https://api.example.com"
               required
             />
-          </label>
+            <div className="sheet-tip">
+              <Lightbulb size={15} />
+              <span>
+                {values.fullUrlMode
+                  ? "完整 URL 模式：将按你填写的地址原样请求，请自行包含 /v1 等路径。"
+                  : "填写兼容 OpenAI / Anthropic 的服务端点地址，不要以斜杠结尾。默认会自动补全 /v1。"}
+              </span>
+            </div>
+            {values.baseUrl.trim() && (
+              <div className="sheet-resolved mono">
+                实际请求基址：{resolvedBase || "—"}
+              </div>
+            )}
+          </div>
 
-          <label className="field">
-            <span>上下文窗口</span>
-            <input
-              type="number"
-              min={1024}
-              value={values.contextWindow}
-              onChange={(e) => set("contextWindow", Number(e.target.value) || 0)}
-            />
-          </label>
-
-          <label className="field field-span">
-            <span>网站（可选）</span>
-            <input
-              value={values.websiteUrl}
-              onChange={(e) => set("websiteUrl", e.target.value)}
-              placeholder="https://..."
-            />
-          </label>
-
-          <label className="field field-span">
-            <span>备注（可选）</span>
-            <textarea
-              rows={2}
-              value={values.notes}
-              onChange={(e) => set("notes", e.target.value)}
-              placeholder="内部备注"
-            />
-          </label>
-        </div>
-
-        <div className="modal-actions">
           <button
             type="button"
-            className="ghost-btn"
-            onClick={onTest}
-            disabled={testing || saving}
+            className="sheet-advanced-toggle"
+            onClick={() => set("advancedOpen", !values.advancedOpen)}
           >
-            {testing ? <LoaderCircle className="spin" size={15} /> : null}
-            测通
+            <ChevronDown
+              size={16}
+              className={values.advancedOpen ? "rot" : ""}
+            />
+            高级选项
           </button>
-          <div className="modal-actions-right">
-            <button type="button" className="outline-btn" onClick={onClose}>
-              取消
-            </button>
-            <button type="submit" className="primary-btn" disabled={saving}>
-              {saving ? <LoaderCircle className="spin" size={15} /> : null}
-              {editing ? "保存" : "创建"}
-            </button>
-          </div>
+
+          {values.advancedOpen && (
+            <div className="sheet-advanced">
+              <label className="sheet-field">
+                <span>API 格式</span>
+                <select
+                  value={values.apiBackend}
+                  onChange={(e) =>
+                    set("apiBackend", e.target.value as ApiBackend)
+                  }
+                >
+                  <option value="chat_completions">
+                    OpenAI Chat Completions（默认）
+                  </option>
+                  <option value="responses">OpenAI Responses</option>
+                  <option value="messages">Anthropic Messages（原生）</option>
+                </select>
+                <small className="sheet-help">
+                  选择供应商 API 的输入格式。当前认证：{authHint}
+                </small>
+              </label>
+
+              <div className="sheet-field">
+                <div className="sheet-label-row">
+                  <span>模型映射</span>
+                  <div className="sheet-inline-toggles">
+                    <button
+                      type="button"
+                      className="sheet-chip"
+                      onClick={quickFillModels}
+                    >
+                      一键示例
+                    </button>
+                    <button
+                      type="button"
+                      className="sheet-chip"
+                      onClick={addExtra}
+                    >
+                      <Plus size={13} /> 添加模型
+                    </button>
+                  </div>
+                </div>
+                <small className="sheet-help">
+                  显示名称用于界面；实际请求模型会写入 Grok CLI 的 model 字段。勾选
+                  1M 表示大上下文（约 100 万 tokens）。
+                </small>
+
+                <div className="sheet-model-table">
+                  <div className="sheet-model-head">
+                    <span>角色</span>
+                    <span>显示名称</span>
+                    <span>实际请求模型</span>
+                    <span>大上下文 1M</span>
+                  </div>
+
+                  <div className="sheet-model-row">
+                    <span className="sheet-role">默认</span>
+                    <input
+                      value={values.defaultDisplayName}
+                      onChange={(e) =>
+                        set("defaultDisplayName", e.target.value)
+                      }
+                      placeholder="grok-4.5"
+                    />
+                    <input
+                      value={values.defaultModel}
+                      onChange={(e) => set("defaultModel", e.target.value)}
+                      placeholder="grok-4.5"
+                      required
+                    />
+                    <label className="sheet-check">
+                      <input
+                        type="checkbox"
+                        checked={values.defaultLargeContext}
+                        onChange={(e) =>
+                          set("defaultLargeContext", e.target.checked)
+                        }
+                      />
+                      <span>1M</span>
+                    </label>
+                  </div>
+
+                  {values.extras.map((row, idx) => (
+                    <div className="sheet-model-row" key={row.key}>
+                      <span className="sheet-role">备用{idx + 1}</span>
+                      <input
+                        value={row.displayName}
+                        onChange={(e) =>
+                          updateExtra(row.key, {
+                            displayName: e.target.value,
+                          })
+                        }
+                        placeholder="显示名称"
+                      />
+                      <input
+                        value={row.model}
+                        onChange={(e) =>
+                          updateExtra(row.key, { model: e.target.value })
+                        }
+                        placeholder="实际模型 id"
+                      />
+                      <div className="sheet-model-end">
+                        <label className="sheet-check">
+                          <input
+                            type="checkbox"
+                            checked={row.largeContext}
+                            onChange={(e) =>
+                              updateExtra(row.key, {
+                                largeContext: e.target.checked,
+                              })
+                            }
+                          />
+                          <span>1M</span>
+                        </label>
+                        <button
+                          type="button"
+                          className="sheet-icon-inline danger"
+                          onClick={() => removeExtra(row.key)}
+                          aria-label="删除"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <label className="sheet-field">
+                <span>默认兜底模型（可选）</span>
+                <input
+                  value={values.fallbackModel}
+                  onChange={(e) => set("fallbackModel", e.target.value)}
+                  placeholder="未命中映射时的兜底模型 id"
+                />
+                <small className="sheet-help">
+                  用于额外备注；Grok CLI 当前以「默认」行作为启用后的
+                  [models].default。备用模型会一并写入 config 的 gs-* 列表，便于
+                  /model 切换。
+                </small>
+              </label>
+            </div>
+          )}
         </div>
+
+        <footer className="sheet-foot">
+          <button type="button" className="outline-btn" onClick={onClose}>
+            取消
+          </button>
+          <button type="submit" className="primary-btn" disabled={saving}>
+            {saving ? <LoaderCircle className="spin" size={15} /> : null}
+            {editing ? "保存更改" : "创建供应商"}
+          </button>
+        </footer>
       </form>
     </div>
   );
