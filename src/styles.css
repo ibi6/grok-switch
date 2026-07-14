@@ -424,6 +424,130 @@ textarea:focus-visible {
   background: var(--accent-soft);
 }
 
+.model-chip {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 650;
+  max-width: 220px;
+  transition: 0.15s ease;
+}
+
+.model-chip .mono {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-chip:hover {
+  border-color: var(--accent-ring);
+  color: var(--nav-active-text);
+  background: var(--accent-soft);
+}
+
+.provider-card.is-clickable {
+  cursor: pointer;
+}
+
+.provider-card.is-clickable:active {
+  transform: scale(0.995);
+}
+
+.provider-card.is-busy {
+  opacity: 0.85;
+}
+
+.card-menu-wrap {
+  position: relative;
+}
+
+.card-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 132px;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  z-index: 30;
+  display: grid;
+  gap: 2px;
+}
+
+.card-menu button {
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  font-size: 13px;
+  font-weight: 600;
+  width: 100%;
+  text-align: left;
+}
+
+.card-menu button:hover {
+  background: var(--nav-hover);
+}
+
+.card-menu button.danger {
+  color: var(--danger);
+}
+
+.import-protocol-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.import-protocol-bar > span {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.import-protocol-bar select,
+.import-backend-select {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-strong);
+  background: var(--input-bg);
+  color: var(--text);
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.import-protocol-bar small {
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.import-row-grid {
+  display: grid !important;
+  grid-template-columns: 20px 1fr minmax(120px, 150px);
+  gap: 12px;
+  align-items: center;
+}
+
 .header-actions {
   display: flex;
   gap: 10px;

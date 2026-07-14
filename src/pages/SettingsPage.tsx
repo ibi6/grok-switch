@@ -213,13 +213,14 @@ export function SettingsPage({
           </div>
           <div className="setting-copy">
             <b>开机启动</b>
-            <span>登录系统后自动打开（可后续完善）。</span>
+            <span>即将支持（当前开关仅保存偏好，不会写入系统启动项）。</span>
           </div>
           <button
             type="button"
             className={draft.launchOnStartup ? "toggle on" : "toggle"}
             onClick={() => set("launchOnStartup", !draft.launchOnStartup)}
             aria-pressed={draft.launchOnStartup}
+            title="即将支持"
           >
             <span />
           </button>

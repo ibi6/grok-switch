@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Check,
   LoaderCircle,
+  MoreHorizontal,
   Pencil,
   Plus,
   Search,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import type { Provider, Settings } from "../lib/types";
 import { maskSecret } from "../lib/mask";
+import { backendLabel, modelFlag } from "../lib/providerUtils";
 import * as api from "../lib/api";
 import { ProviderForm } from "../components/ProviderForm";
 
@@ -28,12 +30,6 @@ function colorFor(id: string): string {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * 17) % AVATAR_COLORS.length;
   return AVATAR_COLORS[h];
-}
-
-function backendLabel(b: Provider["apiBackend"]): string {
-  if (b === "messages") return "Anthropic";
-  if (b === "responses") return "Responses";
-  return "OpenAI";
 }
 
 export function ProvidersPage({
@@ -56,6 +52,7 @@ export function ProvidersPage({
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [menuId, setMenuId] = useState<string | null>(null);
 
   useEffect(() => {
     const open = () => {
@@ -66,15 +63,25 @@ export function ProvidersPage({
     return () => window.removeEventListener("gs-open-provider-form", open);
   }, []);
 
-  const filtered = useMemo(
-    () =>
-      providers.filter((p) =>
-        (p.name + p.baseUrl + p.apiBackend)
-          .toLowerCase()
-          .includes(query.toLowerCase()),
-      ),
-    [providers, query],
-  );
+  useEffect(() => {
+    const close = () => setMenuId(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.toLowerCase();
+    const list = providers.filter((p) =>
+      (p.name + p.baseUrl + p.apiBackend).toLowerCase().includes(q),
+    );
+    // Current first, then by name
+    const cur = settings?.currentProviderId;
+    return [...list].sort((a, b) => {
+      if (a.id === cur) return -1;
+      if (b.id === cur) return 1;
+      return a.name.localeCompare(b.name, "zh");
+    });
+  }, [providers, query, settings?.currentProviderId]);
 
   const openCreate = () => {
     setEditing(null);
@@ -84,21 +91,18 @@ export function ProvidersPage({
   const openEdit = (p: Provider) => {
     setEditing(p);
     setFormOpen(true);
+    setMenuId(null);
   };
 
-  const modelFlag = (p: Provider) => {
-    const entry =
-      p.models.find((m) => m.id === p.defaultModelEntryId) ?? p.models[0];
-    const id = entry?.id ?? p.defaultModelEntryId;
-    return id.startsWith("gs-") ? id : `gs-${id}`;
-  };
-
-  const finishEnableOk = async (provider: Provider | undefined, forced: boolean) => {
+  const finishEnableOk = async (
+    provider: Provider | undefined,
+    forced: boolean,
+  ) => {
     const flag = provider ? modelFlag(provider) : "gs-…";
     notify(
       forced
-        ? `已强制启用 · 使用 grok -m ${flag}`
-        : `已切换 · 模型 ${flag}（grok -m ${flag}）`,
+        ? `已强制启用 · ${flag}`
+        : `已切换 · ${flag}`,
     );
     try {
       await navigator.clipboard?.writeText(flag);
@@ -110,12 +114,18 @@ export function ProvidersPage({
 
   const onEnable = async (id: string) => {
     const provider = providers.find((x) => x.id === id);
+    if (
+      settings?.currentMode === "provider" &&
+      settings.currentProviderId === id
+    ) {
+      notify("已是当前供应商");
+      return;
+    }
     setBusy(`enable-${id}`);
     try {
-      // Keep confirm OUTSIDE the switching overlay so the dialog is usable.
       const res = await withSwitching(() => api.enableProvider(id, false), {
-        title: "切换供应商",
-        detail: "正在备份并写入 ~/.grok/config.toml …",
+        title: "切换中",
+        detail: "写入 Grok CLI 配置…",
       });
       if (!res) return;
 
@@ -130,10 +140,7 @@ export function ProvidersPage({
           }
           const forced = await withSwitching(
             () => api.enableProvider(id, true),
-            {
-              title: "强制启用",
-              detail: "跳过测通，写入 Grok CLI 配置…",
-            },
+            { title: "强制启用", detail: "跳过测通，写入配置…" },
           );
           if (!forced) return;
           if (!forced.ok) {
@@ -165,6 +172,7 @@ export function ProvidersPage({
 
   const onTest = async (id: string) => {
     setBusy(`test-${id}`);
+    setMenuId(null);
     try {
       const res = await api.testProvider(id);
       if (!res.ok || !res.data) {
@@ -184,6 +192,7 @@ export function ProvidersPage({
   };
 
   const onDelete = async (id: string) => {
+    setMenuId(null);
     if (
       settings?.currentProviderId === id &&
       settings.currentMode === "provider"
@@ -212,7 +221,7 @@ export function ProvidersPage({
         <div className="search">
           <Search size={15} />
           <input
-            placeholder="搜索名称 / URL / 协议"
+            placeholder="搜索名称 / URL / 协议 · 点击卡片即可切换"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -251,13 +260,28 @@ export function ProvidersPage({
             return (
               <div
                 key={p.id}
-                className={`provider-card ${active ? "is-current" : ""}`}
+                className={`provider-card is-clickable ${active ? "is-current" : ""} ${enabling ? "is-busy" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  if (!busy) void onEnable(p.id);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (!busy) void onEnable(p.id);
+                  }
+                }}
               >
                 <div
                   className="provider-avatar"
                   style={{ background: colorFor(p.id) }}
                 >
-                  {p.name.slice(0, 2).toUpperCase()}
+                  {enabling ? (
+                    <LoaderCircle size={18} className="spin" color="#fff" />
+                  ) : (
+                    p.name.slice(0, 2).toUpperCase()
+                  )}
                 </div>
 
                 <div className="provider-body">
@@ -277,7 +301,7 @@ export function ProvidersPage({
                   </div>
                   <div className="provider-meta">
                     <code title={p.baseUrl}>{p.baseUrl}</code>
-                    <span>模型 {model}</span>
+                    <span>{model}</span>
                     <code
                       className="copyable"
                       title="点击复制 grok -m 模型 id"
@@ -292,30 +316,10 @@ export function ProvidersPage({
                   </div>
                 </div>
 
-                <div className="provider-actions">
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    disabled={!!busy}
-                    onClick={() => void onTest(p.id)}
-                    title="连通性检测"
-                  >
-                    {testing ? (
-                      <LoaderCircle size={14} className="spin" />
-                    ) : (
-                      <Zap size={14} />
-                    )}
-                    测通
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-btn"
-                    disabled={!!busy}
-                    onClick={() => openEdit(p)}
-                  >
-                    <Pencil size={14} />
-                    编辑
-                  </button>
+                <div
+                  className="provider-actions"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   {!active && (
                     <button
                       type="button"
@@ -328,18 +332,50 @@ export function ProvidersPage({
                       ) : (
                         <Check size={14} />
                       )}
-                      启用
+                      切换
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="icon-btn"
-                    disabled={!!busy}
-                    onClick={() => void onDelete(p.id)}
-                    title="删除"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div className="card-menu-wrap">
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      disabled={!!busy}
+                      title="更多"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuId((id) => (id === p.id ? null : p.id));
+                      }}
+                    >
+                      <MoreHorizontal size={16} />
+                    </button>
+                    {menuId === p.id && (
+                      <div className="card-menu" role="menu">
+                        <button
+                          type="button"
+                          onClick={() => void onTest(p.id)}
+                        >
+                          {testing ? (
+                            <LoaderCircle size={14} className="spin" />
+                          ) : (
+                            <Zap size={14} />
+                          )}
+                          测通
+                        </button>
+                        <button type="button" onClick={() => openEdit(p)}>
+                          <Pencil size={14} />
+                          编辑
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          onClick={() => void onDelete(p.id)}
+                        >
+                          <Trash2 size={14} />
+                          删除
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -351,9 +387,14 @@ export function ProvidersPage({
         open={formOpen}
         initial={editing}
         onClose={() => setFormOpen(false)}
-        onSaved={() => {
+        onSaved={async (p) => {
           setFormOpen(false);
-          void onRefresh();
+          await onRefresh();
+        }}
+        onSavedAndEnable={async (p) => {
+          setFormOpen(false);
+          await onRefresh();
+          await onEnable(p.id);
         }}
         notify={notify}
       />

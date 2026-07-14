@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, RefreshCw } from "lucide-react";
+import { Copy, Plus, RefreshCw, Terminal } from "lucide-react";
 import * as api from "./lib/api";
 import type { Account, Activity, CliStatus, Provider, Settings, Theme } from "./lib/types";
+import { modelFlag, modeLabel } from "./lib/providerUtils";
 import { Sidebar, type PageId } from "./components/Sidebar";
 import { Toast, type ToastTone } from "./components/Toast";
 import { SwitchOverlay } from "./components/SwitchOverlay";
@@ -162,10 +163,44 @@ export default function App() {
       ? accounts.find((a) => a.id === settings.currentAccountId)
       : undefined;
   const hasCurrent = Boolean(currentProvider || currentAccount);
-  const currentLabel =
-    currentProvider?.name ??
-    currentAccount?.name ??
-    (settings?.currentMode === "none" || !settings ? "未启用" : "—");
+  const currentLabel = modeLabel(
+    settings?.currentMode,
+    currentProvider?.name,
+    currentAccount?.name,
+  );
+  const currentModelId = currentProvider
+    ? modelFlag(currentProvider)
+    : settings?.currentMode === "official"
+      ? settings.officialDefaultModel
+      : null;
+
+  const copyCurrentModel = async () => {
+    if (!currentModelId) return;
+    try {
+      await navigator.clipboard.writeText(currentModelId);
+      notify(`已复制 ${currentModelId}`);
+    } catch {
+      notify(`模型：${currentModelId}`);
+    }
+  };
+
+  const openGrokTerminal = async () => {
+    const cmd = currentModelId ? `grok -m ${currentModelId}` : "grok";
+    try {
+      const { Command } = await import("@tauri-apps/plugin-shell");
+      // Open PowerShell with the right model pre-filled (wt if installed).
+      await Command.create("cmd", [
+        "/C",
+        `start "" wt -d %USERPROFILE% powershell -NoExit -Command "${cmd}" || start "" powershell -NoExit -Command "${cmd}"`,
+      ]).execute();
+      notify(`已打开终端：${cmd}`);
+    } catch (e) {
+      notify(
+        `请手动运行：${cmd}${e instanceof Error ? `（${e.message}）` : ""}`,
+        "error",
+      );
+    }
+  };
 
   return (
     <div className="app-shell">
@@ -192,10 +227,31 @@ export default function App() {
               <span
                 className={`status-dot ${hasCurrent ? "" : "status-dot-warn"}`}
               />
-              <span>当前：{currentLabel}</span>
+              <span>{currentLabel}</span>
             </div>
+            {currentModelId && (
+              <button
+                type="button"
+                className="model-chip"
+                title="点击复制模型 id"
+                onClick={() => void copyCurrentModel()}
+              >
+                <span className="mono">{currentModelId}</span>
+                <Copy size={12} />
+              </button>
+            )}
           </div>
           <div className="header-actions">
+            {hasCurrent && (
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => void openGrokTerminal()}
+                title="在终端打开 grok"
+              >
+                <Terminal size={14} /> 打开 Grok
+              </button>
+            )}
             <button
               type="button"
               className="ghost-btn"
@@ -208,11 +264,10 @@ export default function App() {
                 type="button"
                 className="primary-btn"
                 onClick={() => {
-                  /* ProvidersPage owns create via custom event */
                   window.dispatchEvent(new CustomEvent("gs-open-provider-form"));
                 }}
               >
-                <Plus size={15} /> 添加供应商
+                <Plus size={15} /> 添加
               </button>
             )}
             {page === "import" && (
@@ -265,7 +320,11 @@ export default function App() {
                 />
               )}
               {page === "import" && (
-                <ImportPage onImported={refresh} notify={notify} />
+                <ImportPage
+                  onImported={refresh}
+                  notify={notify}
+                  withSwitching={withSwitching}
+                />
               )}
               {page === "activity" && (
                 <ActivityPage

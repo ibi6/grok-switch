@@ -118,12 +118,14 @@ export function ProviderForm({
   initial,
   onClose,
   onSaved,
+  onSavedAndEnable,
   notify,
 }: {
   open: boolean;
   initial?: Provider | null;
   onClose: () => void;
-  onSaved: (p: Provider) => void;
+  onSaved: (p: Provider) => void | Promise<void>;
+  onSavedAndEnable?: (p: Provider) => void | Promise<void>;
   notify: (msg: string, tone?: "ok" | "error") => void;
 }) {
   const editing = Boolean(initial);
@@ -132,6 +134,7 @@ export function ProviderForm({
   );
   const [revealKey, setRevealKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [savingEnable, setSavingEnable] = useState(false);
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
@@ -255,8 +258,7 @@ export function ProviderForm({
     }
   };
 
-  const onSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const persist = async (andEnable: boolean) => {
     if (!values.name.trim() || !values.baseUrl.trim() || !values.apiKey.trim()) {
       notify("供应商名称、请求地址和 API Key 为必填", "error");
       return;
@@ -265,7 +267,8 @@ export function ProviderForm({
       notify("请填写默认实际请求模型", "error");
       return;
     }
-    setSaving(true);
+    if (andEnable) setSavingEnable(true);
+    else setSaving(true);
     try {
       const provider = buildProvider();
       const res = await api.upsertProvider(provider);
@@ -273,12 +276,24 @@ export function ProviderForm({
         notify(res.error ?? "保存失败", "error");
         return;
       }
+      if (andEnable && onSavedAndEnable) {
+        notify(editing ? "已保存，正在启用…" : "已创建，正在启用…");
+        await onSavedAndEnable(res.data);
+        onClose();
+        return;
+      }
       notify(editing ? "供应商已更新" : "供应商已添加");
-      onSaved(res.data);
+      await onSaved(res.data);
       onClose();
     } finally {
       setSaving(false);
+      setSavingEnable(false);
     }
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await persist(false);
   };
 
   const addExtra = () => {
@@ -357,7 +372,7 @@ export function ProviderForm({
               type="button"
               className="ghost-btn"
               onClick={() => void onTest()}
-              disabled={testing || saving}
+              disabled={testing || saving || savingEnable}
             >
               {testing ? (
                 <LoaderCircle className="spin" size={15} />
@@ -366,9 +381,25 @@ export function ProviderForm({
               )}
               测通
             </button>
-            <button type="submit" className="primary-btn" disabled={saving}>
+            <button
+              type="button"
+              className="ghost-btn"
+              disabled={saving || savingEnable}
+              onClick={() => void persist(false)}
+            >
               {saving ? <LoaderCircle className="spin" size={15} /> : null}
-              保存
+              仅保存
+            </button>
+            <button
+              type="button"
+              className="primary-btn"
+              disabled={saving || savingEnable}
+              onClick={() => void persist(true)}
+            >
+              {savingEnable ? (
+                <LoaderCircle className="spin" size={15} />
+              ) : null}
+              保存并启用
             </button>
           </div>
         </header>
@@ -644,9 +675,23 @@ export function ProviderForm({
           <button type="button" className="outline-btn" onClick={onClose}>
             取消
           </button>
-          <button type="submit" className="primary-btn" disabled={saving}>
+          <button
+            type="button"
+            className="ghost-btn"
+            disabled={saving || savingEnable}
+            onClick={() => void persist(false)}
+          >
             {saving ? <LoaderCircle className="spin" size={15} /> : null}
-            {editing ? "保存更改" : "创建供应商"}
+            仅保存
+          </button>
+          <button
+            type="button"
+            className="primary-btn"
+            disabled={saving || savingEnable}
+            onClick={() => void persist(true)}
+          >
+            {savingEnable ? <LoaderCircle className="spin" size={15} /> : null}
+            保存并启用
           </button>
         </footer>
       </form>
