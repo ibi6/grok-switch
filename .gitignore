@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build
+dist/
+src-tauri/target/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Local agent / tool state
+.superpowers/
+.omc/
+src-tauri/.omc/
+
+# Logs / cache
+*.log
+.npm
+.vite/
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Env
+.env
+.env.*
+!.env.example
+
+# OS
+desktop.ini

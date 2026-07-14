@@ -1,0 +1,17 @@
+[cli]
+installer = "internal"
+
+[ui]
+yolo = false
+
+[models]
+default = "gs-old-model"
+
+[model.gs-old-model]
+model = "old"
+base_url = "https://old/v1"
+api_key = "sk-old"
+
+[model.user-custom]
+model = "keep-me"
+base_url = "https://custom/v1"
