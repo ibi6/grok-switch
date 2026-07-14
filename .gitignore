@@ -7,6 +7,12 @@ src-tauri/target/
 tsconfig.tsbuildinfo
 *.tsbuildinfo
 
+# Local secrets / runtime data (never commit)
+*.pem
+*.key
+providers.local.json
+auth.local.json
+
 # Local agent / tool state
 .superpowers/
 .omc/

@@ -2,14 +2,37 @@
   "name": "grok-switch",
   "private": true,
   "version": "0.1.0",
+  "description": "Local desktop switcher for Grok CLI providers and official accounts",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ibi6/grok-switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ibi6/grok-switch/issues"
+  },
+  "homepage": "https://github.com/ibi6/grok-switch#readme",
+  "keywords": [
+    "grok",
+    "xai",
+    "cli",
+    "tauri",
+    "provider-switcher",
+    "desktop",
+    "openai-compatible",
+    "anthropic"
+  ],
+  "license": "MIT",
+  "author": "Grok Switch contributors",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

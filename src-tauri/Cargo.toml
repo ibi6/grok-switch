@@ -1,9 +1,14 @@
 [package]
 name = "grok-switch"
 version = "0.1.0"
-description = "Grok CLI provider and account switcher"
-authors = ["Grok Switch"]
+description = "Local desktop switcher for Grok CLI providers and official accounts"
+authors = ["Grok Switch contributors"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/ibi6/grok-switch"
+homepage = "https://github.com/ibi6/grok-switch"
+keywords = ["grok", "tauri", "cli", "provider", "desktop"]
+categories = ["gui", "command-line-utilities"]
 
 [lib]
 name = "grok_switch_lib"
