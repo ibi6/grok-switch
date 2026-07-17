@@ -47,9 +47,20 @@ export function Sidebar({
   accounts: Account[];
   cli: CliStatus | null;
 }) {
-  void settings;
-  void providers;
-  void accounts;
+  const badgeFor = (id: PageId): string | null => {
+    if (id === "providers" && providers.length)
+      return String(providers.length);
+    if (id === "accounts" && accounts.length) return String(accounts.length);
+    if (id === "overview" && settings?.proxyEnabled) return "代理";
+    return null;
+  };
+
+  const modeHint =
+    settings?.currentMode === "provider"
+      ? "中转"
+      : settings?.currentMode === "official"
+        ? "官方"
+        : "未启用";
 
   return (
     <aside className="sidebar">
@@ -59,23 +70,27 @@ export function Sidebar({
         </div>
         <div className="brand-copy">
           <b>Grok Switch</b>
-          <span>本地中转切换器</span>
+          <span>{modeHint}</span>
         </div>
       </div>
 
       <nav className="nav-rail">
-        {NAV.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            type="button"
-            className={page === id ? "nav-item active" : "nav-item"}
-            onClick={() => onNavigate(id)}
-            title={label}
-          >
-            <Icon size={18} />
-            <span>{label}</span>
-          </button>
-        ))}
+        {NAV.map(({ id, label, Icon }) => {
+          const badge = badgeFor(id);
+          return (
+            <button
+              key={id}
+              type="button"
+              className={page === id ? "nav-item active" : "nav-item"}
+              onClick={() => onNavigate(id)}
+              title={label}
+            >
+              <Icon size={18} />
+              <span>{label}</span>
+              {badge && <em className="nav-badge">{badge}</em>}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="sidebar-foot">

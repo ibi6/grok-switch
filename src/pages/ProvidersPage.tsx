@@ -240,6 +240,67 @@ export function ProvidersPage({
     }
   };
 
+  const onBatchTest = async () => {
+    setBusy("batch-test");
+    try {
+      const res = await api.testProvidersBatch(
+        filtered.map((p) => p.id),
+      );
+      if (!res.ok || !res.data) {
+        notify(res.error ?? "批量测通失败", "error");
+        return;
+      }
+      const okN = res.data.filter(([, h]) => h.ok).length;
+      const failN = res.data.length - okN;
+      notify(
+        `批量测通完成：成功 ${okN}${failN ? ` · 失败 ${failN}` : ""}`,
+        failN ? "error" : "ok",
+      );
+      await onRefresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onExport = async () => {
+    const res = await api.exportProvidersJson();
+    if (!res.ok || !res.data) {
+      notify(res.error ?? "导出失败", "error");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(res.data);
+      notify("供应商 JSON 已复制到剪贴板");
+    } catch {
+      // Fallback download
+      const blob = new Blob([res.data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `grok-switch-providers-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      notify("已下载 providers JSON");
+    }
+  };
+
+  const onImportJson = async () => {
+    const text = window.prompt("粘贴供应商 JSON 数组：");
+    if (!text?.trim()) return;
+    setBusy("import-json");
+    try {
+      const res = await api.importProvidersJson(text);
+      if (!res.ok || res.data == null) {
+        notify(res.error ?? "导入失败", "error");
+        return;
+      }
+      notify(res.data > 0 ? `已导入 ${res.data} 个供应商` : "没有新供应商");
+      await onRefresh();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <div className="page-wrap">
       <div className="toolbar">
@@ -251,6 +312,38 @@ export function ProvidersPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!!busy || filtered.length === 0}
+          onClick={() => void onBatchTest()}
+          title="批量测通当前列表"
+        >
+          {busy === "batch-test" ? (
+            <LoaderCircle className="spin" size={15} />
+          ) : (
+            <Zap size={15} />
+          )}
+          批量测通
+        </button>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!!busy}
+          onClick={() => void onExport()}
+          title="导出 JSON 到剪贴板"
+        >
+          <Copy size={15} /> 导出
+        </button>
+        <button
+          type="button"
+          className="ghost-btn"
+          disabled={!!busy}
+          onClick={() => void onImportJson()}
+          title="从 JSON 导入"
+        >
+          <Plus size={15} /> 导入 JSON
+        </button>
         <button type="button" className="primary-btn" onClick={openCreate}>
           <Plus size={15} /> 添加
         </button>

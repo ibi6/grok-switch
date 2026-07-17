@@ -49,8 +49,29 @@ function applyDocumentTheme(theme: Theme | undefined) {
   }
 }
 
+const PAGE_IDS: PageId[] = [
+  "overview",
+  "providers",
+  "accounts",
+  "import",
+  "skills",
+  "mcp",
+  "activity",
+  "settings",
+];
+
+function loadSavedPage(): PageId {
+  try {
+    const raw = localStorage.getItem("gs-page");
+    if (raw && (PAGE_IDS as string[]).includes(raw)) return raw as PageId;
+  } catch {
+    /* ignore */
+  }
+  return "overview";
+}
+
 export default function App() {
-  const [page, setPage] = useState<PageId>("providers");
+  const [page, setPage] = useState<PageId>(() => loadSavedPage());
   const [settings, setSettings] = useState<Settings | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -64,6 +85,15 @@ export default function App() {
     detail: "备份配置并写入 Grok CLI…",
   });
   const toastTimer = useRef<number | null>(null);
+
+  // Remember last page (CC Switch-style session continuity).
+  useEffect(() => {
+    try {
+      localStorage.setItem("gs-page", page);
+    } catch {
+      /* ignore */
+    }
+  }, [page]);
 
   const notify = useCallback((message: string, tone: ToastTone = "ok") => {
     setToast({ message, tone });

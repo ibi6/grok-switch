@@ -8,6 +8,8 @@ import type {
   EnableAccountResult,
   EnableProviderResult,
   HealthResult,
+  CcMcpCandidate,
+  CcPromptCandidate,
   ImportCandidate,
   Provider,
   ProviderDraft,
@@ -525,6 +527,87 @@ async function mockInvoke<T>(
       return ok(imported) as ApiResult<T>;
     }
 
+    case "import_ccswitch_mcp_preview":
+      return ok([
+        {
+          id: "context7",
+          name: "context7",
+          command: "npx",
+          args: ["-y", "@upstash/context7-mcp"],
+          env: {},
+          enabled: true,
+          description: "docs lookup",
+        },
+      ] satisfies CcMcpCandidate[]) as ApiResult<T>;
+
+    case "import_ccswitch_mcp_apply": {
+      mockMcpServers = [
+        ...mockMcpServers,
+        {
+          name: "context7",
+          command: "npx",
+          args: ["-y", "@upstash/context7-mcp"],
+          env: {},
+          headers: {},
+          enabled: true,
+          transport: "stdio",
+        },
+      ];
+      return ok(["context7"]) as ApiResult<T>;
+    }
+
+    case "import_ccswitch_prompts_preview":
+      return ok([
+        {
+          id: "p1",
+          name: "代码审查",
+          content: "请审查改动",
+          appType: "claude",
+          enabled: true,
+        },
+      ] satisfies CcPromptCandidate[]) as ApiResult<T>;
+
+    case "import_ccswitch_prompts_apply":
+      return ok(1) as ApiResult<T>;
+
+    case "export_providers_json":
+      return ok(JSON.stringify(mockProviders, null, 2)) as ApiResult<T>;
+
+    case "import_providers_json": {
+      try {
+        const arr = JSON.parse(String(args?.json ?? "[]")) as Provider[];
+        let n = 0;
+        for (const p of arr) {
+          if (!p?.name || !p?.baseUrl) continue;
+          mockProviders.push({
+            ...p,
+            id: `imp-${Date.now()}-${n}`,
+            createdAt: now(),
+            updatedAt: now(),
+          });
+          n++;
+        }
+        return ok(n) as ApiResult<T>;
+      } catch {
+        return err("invalid json") as ApiResult<T>;
+      }
+    }
+
+    case "test_providers_batch": {
+      const ids = args?.ids as string[] | undefined;
+      const list = ids?.length
+        ? mockProviders.filter((p) => ids.includes(p.id))
+        : mockProviders;
+      const results = list.map(
+        (p) =>
+          [
+            p.id,
+            { ok: true, latencyMs: 20, detail: "mock ok" } satisfies HealthResult,
+          ] as [string, HealthResult],
+      );
+      return ok(results) as ApiResult<T>;
+    }
+
     case "get_cli_status": {
       const status: CliStatus = {
         found: true,
@@ -857,6 +940,34 @@ export function importCcswitchPreview() {
 
 export function importCcswitchApply(ids: string[]) {
   return call<Provider[]>("import_ccswitch_apply", { ids });
+}
+
+export function importCcswitchMcpPreview() {
+  return call<CcMcpCandidate[]>("import_ccswitch_mcp_preview");
+}
+
+export function importCcswitchMcpApply(ids: string[] = []) {
+  return call<string[]>("import_ccswitch_mcp_apply", { ids });
+}
+
+export function importCcswitchPromptsPreview() {
+  return call<CcPromptCandidate[]>("import_ccswitch_prompts_preview");
+}
+
+export function importCcswitchPromptsApply(ids: string[] = []) {
+  return call<number>("import_ccswitch_prompts_apply", { ids });
+}
+
+export function exportProvidersJson() {
+  return call<string>("export_providers_json");
+}
+
+export function importProvidersJson(json: string) {
+  return call<number>("import_providers_json", { json });
+}
+
+export function testProvidersBatch(ids?: string[]) {
+  return call<Array<[string, HealthResult]>>("test_providers_batch", { ids });
 }
 
 export function getCliStatus() {

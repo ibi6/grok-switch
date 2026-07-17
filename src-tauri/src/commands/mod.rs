@@ -4,7 +4,9 @@ use crate::core::account_store;
 use crate::core::activity;
 use crate::core::auth_vault;
 use crate::core::backup::{self, BackupMeta};
-use crate::core::ccswitch_import::{self, ImportCandidate};
+use crate::core::ccswitch_import::{
+    self, CcMcpCandidate, CcPromptCandidate, ImportCandidate,
+};
 use crate::core::cli_status::{self, CliStatus};
 use crate::core::config_writer;
 use crate::core::health::{self, HealthResult};
@@ -711,6 +713,217 @@ pub fn import_ccswitch_apply(
     ids: Vec<String>,
 ) -> ApiResult<Vec<Provider>> {
     ApiResult::from_result(import_apply_flow(&state.paths, &ids))
+}
+
+#[tauri::command]
+pub fn import_ccswitch_mcp_preview(
+    state: State<'_, AppState>,
+) -> ApiResult<Vec<CcMcpCandidate>> {
+    ApiResult::from_result(ccswitch_import::preview_mcp(&state.paths.ccswitch_db))
+}
+
+#[tauri::command]
+pub fn import_ccswitch_mcp_apply(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> ApiResult<Vec<String>> {
+    match ccswitch_import::preview_mcp(&state.paths.ccswitch_db) {
+        Ok(all) => {
+            let selected: Vec<_> = if ids.is_empty() {
+                all
+            } else {
+                all.into_iter()
+                    .filter(|c| ids.iter().any(|id| id == &c.id))
+                    .collect()
+            };
+            let existing = mcp_store::list_mcp_servers(&state.paths).unwrap_or_default();
+            let mut imported = Vec::new();
+            for c in selected {
+                if existing.iter().any(|e| e.name == c.name) {
+                    continue;
+                }
+                let draft = crate::core::mcp_store::McpDraft {
+                    name: c.name.clone(),
+                    command: c.command.clone(),
+                    args: c.args.clone(),
+                    url: c.url.clone(),
+                    env: c.env.clone(),
+                    headers: HashMap::new(),
+                    enabled: c.enabled,
+                    startup_timeout_sec: Some(30),
+                    tool_timeout_sec: None,
+                };
+                match mcp_store::upsert_mcp_server(&state.paths, &draft) {
+                    Ok(s) => imported.push(s.name),
+                    Err(e) => {
+                        return ApiResult::err(format!("import MCP {}: {e}", c.name));
+                    }
+                }
+            }
+            log_activity(
+                &state.paths,
+                ActivityType::Import,
+                &format!("Imported {} MCP server(s) from CC Switch", imported.len()),
+                Some(HashMap::from([(
+                    "count".into(),
+                    imported.len().to_string(),
+                )])),
+            );
+            ApiResult::ok(imported)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn import_ccswitch_prompts_preview(
+    state: State<'_, AppState>,
+) -> ApiResult<Vec<CcPromptCandidate>> {
+    ApiResult::from_result(ccswitch_import::preview_prompts(&state.paths.ccswitch_db))
+}
+
+#[tauri::command]
+pub fn import_ccswitch_prompts_apply(
+    state: State<'_, AppState>,
+    ids: Vec<String>,
+) -> ApiResult<usize> {
+    match ccswitch_import::preview_prompts(&state.paths.ccswitch_db) {
+        Ok(all) => {
+            let selected: Vec<_> = if ids.is_empty() {
+                all
+            } else {
+                all.into_iter()
+                    .filter(|c| ids.iter().any(|id| id == &c.id))
+                    .collect()
+            };
+            let existing = db::list_prompts(&state.paths).unwrap_or_default();
+            let mut count = 0usize;
+            for c in selected {
+                // Skip exact-name duplicates.
+                if existing.iter().any(|e| e.name == c.name) {
+                    continue;
+                }
+                let id = if c.id.trim().is_empty() {
+                    uuid::Uuid::new_v4().to_string()
+                } else {
+                    c.id.clone()
+                };
+                if db::upsert_prompt(&state.paths, &id, &c.name, &c.content).is_ok() {
+                    count += 1;
+                }
+            }
+            log_activity(
+                &state.paths,
+                ActivityType::Import,
+                &format!("Imported {count} prompt(s) from CC Switch"),
+                Some(HashMap::from([("count".into(), count.to_string())])),
+            );
+            ApiResult::ok(count)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+/// Export all providers as a JSON string (for backup / share).
+#[tauri::command]
+pub fn export_providers_json(state: State<'_, AppState>) -> ApiResult<String> {
+    match provider_store::list_providers(&state.paths) {
+        Ok(items) => match serde_json::to_string_pretty(&items) {
+            Ok(s) => ApiResult::ok(s),
+            Err(e) => ApiResult::err(e.to_string()),
+        },
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+/// Import providers from a JSON array (skips id collisions by regenerating ids).
+#[tauri::command]
+pub fn import_providers_json(
+    state: State<'_, AppState>,
+    json: String,
+) -> ApiResult<usize> {
+    let parsed: Result<Vec<Provider>, _> = serde_json::from_str(&json);
+    let mut items = match parsed {
+        Ok(v) => v,
+        Err(e) => return ApiResult::err(format!("invalid providers JSON: {e}")),
+    };
+    let existing = provider_store::list_providers(&state.paths).unwrap_or_default();
+    let mut count = 0usize;
+    for mut p in items.drain(..) {
+        if let Err(e) = config_writer::validate_provider(&p) {
+            // Skip invalid entries rather than failing whole import.
+            eprintln!("skip invalid provider {}: {e}", p.name);
+            continue;
+        }
+        // Always assign a fresh id to avoid clobbering.
+        if existing.iter().any(|e| e.id == p.id)
+            || provider_store::get_provider(&state.paths, &p.id)
+                .ok()
+                .flatten()
+                .is_some()
+        {
+            p.id = uuid::Uuid::new_v4().to_string();
+        }
+        // Dedup by URL+key like CC import.
+        if existing.iter().any(|e| {
+            crate::core::normalize_base_url(&e.base_url, true)
+                == crate::core::normalize_base_url(&p.base_url, true)
+                && e.api_key == p.api_key
+        }) {
+            continue;
+        }
+        p.updated_at = chrono::Local::now().timestamp();
+        if p.created_at == 0 {
+            p.created_at = p.updated_at;
+        }
+        if provider_store::upsert_provider(&state.paths, p).is_ok() {
+            count += 1;
+        }
+    }
+    log_activity(
+        &state.paths,
+        ActivityType::Import,
+        &format!("Imported {count} provider(s) from JSON"),
+        Some(HashMap::from([("count".into(), count.to_string())])),
+    );
+    ApiResult::ok(count)
+}
+
+/// Batch health-check providers (CC Switch stream-check style, sequential).
+#[tauri::command]
+pub fn test_providers_batch(
+    state: State<'_, AppState>,
+    ids: Option<Vec<String>>,
+) -> ApiResult<Vec<(String, HealthResult)>> {
+    let all = match provider_store::list_providers(&state.paths) {
+        Ok(v) => v,
+        Err(e) => return ApiResult::err(e.to_string()),
+    };
+    let targets: Vec<_> = match ids {
+        Some(list) if !list.is_empty() => all
+            .into_iter()
+            .filter(|p| list.iter().any(|id| id == &p.id))
+            .collect(),
+        _ => all,
+    };
+    let mut out = Vec::with_capacity(targets.len());
+    for p in targets {
+        let model = resolve_provider_model(&p);
+        let result = health::check_provider(
+            &p.base_url,
+            &p.api_key,
+            p.api_backend,
+            &model,
+        );
+        out.push((p.id, result));
+    }
+    log_activity(
+        &state.paths,
+        ActivityType::Health,
+        &format!("Batch health-checked {} provider(s)", out.len()),
+        Some(HashMap::from([("count".into(), out.len().to_string())])),
+    );
+    ApiResult::ok(out)
 }
 
 #[tauri::command]

@@ -170,6 +170,25 @@ export interface ImportCandidate {
   suggestedBackend: ApiBackend;
 }
 
+export interface CcMcpCandidate {
+  id: string;
+  name: string;
+  command?: string;
+  args: string[];
+  url?: string;
+  env: Record<string, string>;
+  enabled: boolean;
+  description?: string;
+}
+
+export interface CcPromptCandidate {
+  id: string;
+  name: string;
+  content: string;
+  appType: string;
+  enabled: boolean;
+}
+
 export interface BackupMeta {
   reason: string;
   createdAt: number;

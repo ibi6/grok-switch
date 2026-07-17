@@ -184,6 +184,192 @@ pub fn dedup_candidates(
         .collect()
 }
 
+// ─── MCP / Prompts import (CC Switch parity) ─────────────────────────────────
+
+/// Preview row for MCP servers from CC Switch.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CcMcpCandidate {
+    pub id: String,
+    pub name: String,
+    pub command: Option<String>,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    pub enabled: bool,
+    pub description: Option<String>,
+}
+
+/// Preview row for prompts from CC Switch.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CcPromptCandidate {
+    pub id: String,
+    pub name: String,
+    pub content: String,
+    pub app_type: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct McpServerConfig {
+    #[serde(default)]
+    r#type: Option<String>,
+    #[serde(default)]
+    command: Option<String>,
+    #[serde(default)]
+    args: Vec<String>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    env: HashMap<String, String>,
+}
+
+fn open_ro(db_path: &Path) -> Result<Connection, AppError> {
+    if !db_path.is_file() {
+        return Err(AppError::NotFound(format!(
+            "CC Switch database not found at {}",
+            db_path.display()
+        )));
+    }
+    let path_str = db_path.display().to_string().replace('\\', "/");
+    let uri = format!("file:{path_str}?mode=ro");
+    Connection::open_with_flags(
+        &uri,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+    )
+    .map_err(|e| AppError::Message(format!("failed to open CC Switch DB: {e}")))
+}
+
+/// List MCP servers defined in CC Switch (enabled for Claude preferred).
+pub fn preview_mcp(db_path: &Path) -> Result<Vec<CcMcpCandidate>, AppError> {
+    let conn = open_ro(db_path)?;
+    preview_mcp_from_connection(&conn)
+}
+
+pub fn preview_mcp_from_connection(conn: &Connection) -> Result<Vec<CcMcpCandidate>, AppError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, name, server_config, description, enabled_claude FROM mcp_servers",
+        )
+        .map_err(|e| AppError::Message(format!("MCP query prepare failed: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i64>(4).unwrap_or(0),
+            ))
+        })
+        .map_err(|e| AppError::Message(format!("MCP query failed: {e}")))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, name, cfg_raw, description, enabled_claude) =
+            row.map_err(|e| AppError::Message(format!("MCP row: {e}")))?;
+        let Some(raw) = cfg_raw.filter(|s| !s.trim().is_empty()) else {
+            continue;
+        };
+        let Ok(cfg) = serde_json::from_str::<McpServerConfig>(&raw) else {
+            continue;
+        };
+        let command = cfg
+            .command
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let url = cfg
+            .url
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if command.is_none() && url.is_none() {
+            continue;
+        }
+        // Sanitize name for Grok toml key.
+        let safe_name = sanitize_mcp_name(&name);
+        out.push(CcMcpCandidate {
+            id,
+            name: safe_name,
+            command,
+            args: cfg.args,
+            url,
+            env: cfg.env,
+            enabled: enabled_claude != 0,
+            description,
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// List prompts from CC Switch.
+pub fn preview_prompts(db_path: &Path) -> Result<Vec<CcPromptCandidate>, AppError> {
+    let conn = open_ro(db_path)?;
+    preview_prompts_from_connection(&conn)
+}
+
+pub fn preview_prompts_from_connection(
+    conn: &Connection,
+) -> Result<Vec<CcPromptCandidate>, AppError> {
+    let mut stmt = conn
+        .prepare("SELECT id, app_type, name, content, enabled FROM prompts")
+        .map_err(|e| AppError::Message(format!("prompts query prepare failed: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4).unwrap_or(0),
+            ))
+        })
+        .map_err(|e| AppError::Message(format!("prompts query failed: {e}")))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        let (id, app_type, name, content, enabled) =
+            row.map_err(|e| AppError::Message(format!("prompt row: {e}")))?;
+        if name.trim().is_empty() || content.trim().is_empty() {
+            continue;
+        }
+        out.push(CcPromptCandidate {
+            id,
+            name,
+            content,
+            app_type,
+            enabled: enabled != 0,
+        });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+fn sanitize_mcp_name(raw: &str) -> String {
+    let mut out = String::new();
+    let mut last_us = false;
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_us = false;
+        } else if !last_us {
+            out.push('_');
+            last_us = true;
+        }
+    }
+    let s = out.trim_matches('_').to_string();
+    if s.is_empty() {
+        "mcp".into()
+    } else {
+        s.chars().take(64).collect()
+    }
+}
+
 /// Build a model entry id slug from `{name}-{model}` keeping only `[a-z0-9-]+`.
 fn model_entry_slug(name: &str, model: &str) -> String {
     let raw = format!("{name}-{model}").to_lowercase();

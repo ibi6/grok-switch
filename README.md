@@ -20,7 +20,7 @@ It manages relay providers and official multi-account sessions the way CC Switch
 | **Providers** | Create / edit / delete OpenAI-compatible & Anthropic-compatible relays |
 | **One-click enable** | Writes managed `gs-*` model sections into `~/.grok/config.toml` |
 | **Official accounts** | Capture `grok login` sessions and switch between them |
-| **Import** | Read-only import from local CC Switch (`~/.cc-switch/cc-switch.db`) |
+| **Import** | CC Switch providers + MCP + prompts; JSON export/import of providers |
 | **Skills** | Manage `~/.grok/skills` (`SKILL.md`); import from `~/.cc-switch/skills`; backups on delete |
 | **MCP** | Manage `[mcp_servers.*]` in `~/.grok/config.toml` (stdio / HTTP); enable, probe, delete |
 | **Provider pool** | Priority / weight / cooldown metadata for automatic selection |
@@ -252,7 +252,7 @@ Use third-party relays only where you are authorized to do so.
 
 - **中转供应商**：OpenAI / Anthropic 兼容网关，一键写入 `~/.grok/config.toml`
 - **官方多账号**：捕获 `grok login` 会话并切换
-- **CC Switch 导入**：只读扫描本机 `~/.cc-switch`
+- **CC Switch 导入**：供应商 / MCP / 提示词；供应商 JSON 导出导入
 - **Skills**：管理 `~/.grok/skills`（`SKILL.md`）；可从 `~/.cc-switch/skills` 导入；删除前备份到 `~/.grok-switch/skill-backups`
 - **MCP**：管理 `config.toml` 的 `[mcp_servers.*]`（stdio / HTTP），启停与探测
 - **供应商池**：优先级 / 权重 / 冷却；代理故障时自动切换

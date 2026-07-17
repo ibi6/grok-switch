@@ -1,6 +1,12 @@
 import { useEffect, useState } from "react";
 import { Download, LoaderCircle, RefreshCw, Zap } from "lucide-react";
-import type { ApiBackend, ImportCandidate, Provider } from "../lib/types";
+import type {
+  ApiBackend,
+  CcMcpCandidate,
+  CcPromptCandidate,
+  ImportCandidate,
+  Provider,
+} from "../lib/types";
 import { maskSecret } from "../lib/mask";
 import * as api from "../lib/api";
 
@@ -9,6 +15,8 @@ function backendLabel(b: ApiBackend): string {
   if (b === "responses") return "Responses";
   return "OpenAI";
 }
+
+type ImportTab = "providers" | "mcp" | "prompts";
 
 export function ImportPage({
   onImported,
@@ -22,6 +30,7 @@ export function ImportPage({
     labels?: { title?: string; detail?: string },
   ) => Promise<T | undefined>;
 }) {
+  const [tab, setTab] = useState<ImportTab>("providers");
   const [candidates, setCandidates] = useState<ImportCandidate[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [backendOverride, setBackendOverride] = useState<
@@ -33,6 +42,11 @@ export function ImportPage({
   const [globalBackend, setGlobalBackend] = useState<ApiBackend | "keep">(
     "keep",
   );
+  const [mcpList, setMcpList] = useState<CcMcpCandidate[]>([]);
+  const [mcpSelected, setMcpSelected] = useState<Set<string>>(new Set());
+  const [promptList, setPromptList] = useState<CcPromptCandidate[]>([]);
+  const [promptSelected, setPromptSelected] = useState<Set<string>>(new Set());
+  const [extraLoading, setExtraLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -54,9 +68,47 @@ export function ImportPage({
     }
   };
 
+  const loadMcp = async () => {
+    setExtraLoading(true);
+    try {
+      const res = await api.importCcswitchMcpPreview();
+      if (!res.ok || !res.data) {
+        notify(res.error ?? "MCP 预览失败", "error");
+        setMcpList([]);
+        return;
+      }
+      setMcpList(res.data);
+      setMcpSelected(new Set(res.data.map((c) => c.id)));
+    } finally {
+      setExtraLoading(false);
+    }
+  };
+
+  const loadPrompts = async () => {
+    setExtraLoading(true);
+    try {
+      const res = await api.importCcswitchPromptsPreview();
+      if (!res.ok || !res.data) {
+        notify(res.error ?? "提示词预览失败", "error");
+        setPromptList([]);
+        return;
+      }
+      setPromptList(res.data);
+      setPromptSelected(new Set(res.data.map((c) => c.id)));
+    } finally {
+      setExtraLoading(false);
+    }
+  };
+
   useEffect(() => {
     void load();
   }, []);
+
+  useEffect(() => {
+    if (tab === "mcp" && mcpList.length === 0) void loadMcp();
+    if (tab === "prompts" && promptList.length === 0) void loadPrompts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -168,152 +220,395 @@ export function ImportPage({
     }
   };
 
+  const applyMcp = async () => {
+    const ids = [...mcpSelected];
+    if (ids.length === 0) {
+      notify("请至少选择一个 MCP", "error");
+      return;
+    }
+    setApplying(true);
+    try {
+      const res = await api.importCcswitchMcpApply(ids);
+      if (!res.ok || !res.data) {
+        notify(res.error ?? "MCP 导入失败", "error");
+        return;
+      }
+      notify(
+        res.data.length
+          ? `已导入 ${res.data.length} 个 MCP：${res.data.join(", ")}`
+          : "没有新的 MCP（可能都已存在）",
+      );
+      await onImported();
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const applyPrompts = async () => {
+    const ids = [...promptSelected];
+    if (ids.length === 0) {
+      notify("请至少选择一条提示词", "error");
+      return;
+    }
+    setApplying(true);
+    try {
+      const res = await api.importCcswitchPromptsApply(ids);
+      if (!res.ok || res.data == null) {
+        notify(res.error ?? "提示词导入失败", "error");
+        return;
+      }
+      notify(
+        res.data > 0
+          ? `已导入 ${res.data} 条提示词`
+          : "没有新的提示词（名称重复已跳过）",
+      );
+      await onImported();
+    } finally {
+      setApplying(false);
+    }
+  };
+
   return (
     <div className="page-wrap">
       <div className="section-head no-margin">
         <div>
           <h2>从 CC Switch 导入</h2>
-          <p>读取本机 ~/.cc-switch；可改协议后导入并测通。</p>
+          <p>读取本机 ~/.cc-switch：供应商 / MCP / 提示词。</p>
         </div>
         <div className="header-actions">
           <button
             type="button"
             className="ghost-btn"
-            onClick={() => void load()}
-            disabled={loading}
+            onClick={() => {
+              if (tab === "providers") void load();
+              else if (tab === "mcp") void loadMcp();
+              else void loadPrompts();
+            }}
+            disabled={loading || extraLoading}
           >
-            {loading ? (
+            {loading || extraLoading ? (
               <LoaderCircle className="spin" size={15} />
             ) : (
               <RefreshCw size={15} />
             )}
             刷新
           </button>
-          <button
-            type="button"
-            className="ghost-btn"
-            onClick={() => void apply(false)}
-            disabled={applying || loading || selected.size === 0}
-          >
-            {applying ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <Download size={15} />
-            )}
-            导入 ({selected.size})
-          </button>
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={() => void apply(true)}
-            disabled={applying || loading || selected.size === 0}
-          >
-            {applying ? (
-              <LoaderCircle className="spin" size={15} />
-            ) : (
-              <Zap size={15} />
-            )}
-            导入并启用首个
-          </button>
+          {tab === "providers" && (
+            <>
+              <button
+                type="button"
+                className="ghost-btn"
+                onClick={() => void apply(false)}
+                disabled={applying || loading || selected.size === 0}
+              >
+                {applying ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Download size={15} />
+                )}
+                导入 ({selected.size})
+              </button>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={() => void apply(true)}
+                disabled={applying || loading || selected.size === 0}
+              >
+                {applying ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <Zap size={15} />
+                )}
+                导入并启用首个
+              </button>
+            </>
+          )}
+          {tab === "mcp" && (
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => void applyMcp()}
+              disabled={applying || extraLoading || mcpSelected.size === 0}
+            >
+              {applying ? (
+                <LoaderCircle className="spin" size={15} />
+              ) : (
+                <Download size={15} />
+              )}
+              导入 MCP ({mcpSelected.size})
+            </button>
+          )}
+          {tab === "prompts" && (
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={() => void applyPrompts()}
+              disabled={applying || extraLoading || promptSelected.size === 0}
+            >
+              {applying ? (
+                <LoaderCircle className="spin" size={15} />
+              ) : (
+                <Download size={15} />
+              )}
+              导入提示词 ({promptSelected.size})
+            </button>
+          )}
         </div>
       </div>
 
-      {!loading && candidates.length > 0 && (
-        <div className="import-protocol-bar">
-          <span>批量协议</span>
-          <select
-            value={globalBackend}
-            onChange={(e) =>
-              applyGlobalBackend(e.target.value as ApiBackend | "keep")
-            }
-          >
-            <option value="keep">保持各项建议</option>
-            <option value="chat_completions">全部 → OpenAI Chat</option>
-            <option value="messages">全部 → Anthropic Messages</option>
-            <option value="responses">全部 → OpenAI Responses</option>
-          </select>
-          <small>Grok 中转多数用 OpenAI Chat；Claude Code 中转常用 Messages。</small>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="empty-state">
-          <LoaderCircle className="spin" size={22} />
-          <b>正在扫描 CC Switch…</b>
-        </div>
-      ) : error ? (
-        <div className="empty-state">
-          <b>无法读取</b>
-          <p>{error}</p>
+      <div className="import-protocol-bar" style={{ gap: 8 }}>
+        {(
+          [
+            ["providers", "供应商"],
+            ["mcp", "MCP"],
+            ["prompts", "提示词"],
+          ] as const
+        ).map(([id, label]) => (
           <button
+            key={id}
             type="button"
-            className="primary-btn"
-            onClick={() => void load()}
+            className={tab === id ? "primary-btn" : "ghost-btn"}
+            onClick={() => setTab(id)}
           >
-            重试
+            {label}
           </button>
-        </div>
-      ) : candidates.length === 0 ? (
-        <div className="empty-state">
-          <b>没有可导入项</b>
-          <p>未在 ~/.cc-switch 发现带 Base URL 的 Claude 供应商。</p>
-        </div>
-      ) : (
-        <div className="import-card">
-          <div className="import-toolbar">
-            <label className="check-field">
-              <input
-                type="checkbox"
-                checked={selected.size === candidates.length}
-                onChange={(e) => toggleAll(e.target.checked)}
-              />
-              <span>全选 · 共 {candidates.length} 项</span>
-            </label>
-          </div>
-          <div className="import-list">
-            {candidates.map((c) => {
-              const backend = backendOverride[c.id] ?? c.suggestedBackend;
-              return (
-                <div key={c.id} className="import-row import-row-grid">
+        ))}
+      </div>
+
+      {tab === "providers" && (
+        <>
+          {!loading && candidates.length > 0 && (
+            <div className="import-protocol-bar">
+              <span>批量协议</span>
+              <select
+                value={globalBackend}
+                onChange={(e) =>
+                  applyGlobalBackend(e.target.value as ApiBackend | "keep")
+                }
+              >
+                <option value="keep">保持各项建议</option>
+                <option value="chat_completions">全部 → OpenAI Chat</option>
+                <option value="messages">全部 → Anthropic Messages</option>
+                <option value="responses">全部 → OpenAI Responses</option>
+              </select>
+              <small>
+                Grok 中转多数用 OpenAI Chat；Claude Code 中转常用 Messages。
+              </small>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="empty-state">
+              <LoaderCircle className="spin" size={22} />
+              <b>正在扫描 CC Switch…</b>
+            </div>
+          ) : error ? (
+            <div className="empty-state">
+              <b>无法读取</b>
+              <p>{error}</p>
+              <button
+                type="button"
+                className="primary-btn"
+                onClick={() => void load()}
+              >
+                重试
+              </button>
+            </div>
+          ) : candidates.length === 0 ? (
+            <div className="empty-state">
+              <b>没有可导入项</b>
+              <p>未在 ~/.cc-switch 发现带 Base URL 的 Claude 供应商。</p>
+            </div>
+          ) : (
+            <div className="import-card">
+              <div className="import-toolbar">
+                <label className="check-field">
                   <input
                     type="checkbox"
-                    checked={selected.has(c.id)}
-                    onChange={() => toggle(c.id)}
+                    checked={selected.size === candidates.length}
+                    onChange={(e) => toggleAll(e.target.checked)}
+                  />
+                  <span>全选 · 共 {candidates.length} 项</span>
+                </label>
+              </div>
+              <div className="import-list">
+                {candidates.map((c) => {
+                  const backend = backendOverride[c.id] ?? c.suggestedBackend;
+                  return (
+                    <div key={c.id} className="import-row import-row-grid">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(c.id)}
+                        onChange={() => toggle(c.id)}
+                      />
+                      <div className="import-main">
+                        <div className="import-title">
+                          <b>{c.name}</b>
+                          <span className="badge badge-backend">
+                            {backendLabel(backend)}
+                          </span>
+                        </div>
+                        <span>
+                          <code>{c.baseUrl}</code>
+                        </span>
+                        <span>
+                          模型 {c.defaultModel} · Key {maskSecret(c.apiKey)}
+                        </span>
+                      </div>
+                      <select
+                        className="import-backend-select"
+                        value={backend}
+                        onChange={(e) =>
+                          setBackendOverride((prev) => ({
+                            ...prev,
+                            [c.id]: e.target.value as ApiBackend,
+                          }))
+                        }
+                        title="导入后使用的 API 协议"
+                      >
+                        <option value="chat_completions">OpenAI Chat</option>
+                        <option value="messages">Anthropic</option>
+                        <option value="responses">Responses</option>
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "mcp" && (
+        extraLoading ? (
+          <div className="empty-state">
+            <LoaderCircle className="spin" size={22} />
+            <b>扫描 MCP…</b>
+          </div>
+        ) : mcpList.length === 0 ? (
+          <div className="empty-state">
+            <b>没有可导入的 MCP</b>
+            <p>CC Switch 的 mcp_servers 表为空或无法解析。</p>
+          </div>
+        ) : (
+          <div className="import-card">
+            <div className="import-toolbar">
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={mcpSelected.size === mcpList.length}
+                  onChange={(e) =>
+                    setMcpSelected(
+                      e.target.checked
+                        ? new Set(mcpList.map((c) => c.id))
+                        : new Set(),
+                    )
+                  }
+                />
+                <span>全选 · 共 {mcpList.length} 项</span>
+              </label>
+            </div>
+            <div className="import-list">
+              {mcpList.map((c) => (
+                <div key={c.id} className="import-row">
+                  <input
+                    type="checkbox"
+                    checked={mcpSelected.has(c.id)}
+                    onChange={() => {
+                      setMcpSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  <div className="import-main">
+                    <div className="import-title">
+                      <b className="mono">{c.name}</b>
+                      <span className="badge badge-backend">
+                        {c.url ? "HTTP" : "stdio"}
+                      </span>
+                      {!c.enabled && (
+                        <span className="badge badge-muted">未启用</span>
+                      )}
+                    </div>
+                    <span>
+                      <code>
+                        {c.url
+                          ? c.url
+                          : `${c.command ?? ""} ${(c.args ?? []).slice(0, 3).join(" ")}`}
+                      </code>
+                    </span>
+                    {c.description && <span>{c.description}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      )}
+
+      {tab === "prompts" && (
+        extraLoading ? (
+          <div className="empty-state">
+            <LoaderCircle className="spin" size={22} />
+            <b>扫描提示词…</b>
+          </div>
+        ) : promptList.length === 0 ? (
+          <div className="empty-state">
+            <b>没有可导入的提示词</b>
+            <p>CC Switch 的 prompts 表为空。</p>
+          </div>
+        ) : (
+          <div className="import-card">
+            <div className="import-toolbar">
+              <label className="check-field">
+                <input
+                  type="checkbox"
+                  checked={promptSelected.size === promptList.length}
+                  onChange={(e) =>
+                    setPromptSelected(
+                      e.target.checked
+                        ? new Set(promptList.map((c) => c.id))
+                        : new Set(),
+                    )
+                  }
+                />
+                <span>全选 · 共 {promptList.length} 项</span>
+              </label>
+            </div>
+            <div className="import-list">
+              {promptList.map((c) => (
+                <div key={c.id} className="import-row">
+                  <input
+                    type="checkbox"
+                    checked={promptSelected.has(c.id)}
+                    onChange={() => {
+                      setPromptSelected((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(c.id)) next.delete(c.id);
+                        else next.add(c.id);
+                        return next;
+                      });
+                    }}
                   />
                   <div className="import-main">
                     <div className="import-title">
                       <b>{c.name}</b>
-                      <span className="badge badge-backend">
-                        {backendLabel(backend)}
-                      </span>
+                      <span className="badge badge-muted">{c.appType}</span>
                     </div>
                     <span>
-                      <code>{c.baseUrl}</code>
-                    </span>
-                    <span>
-                      模型 {c.defaultModel} · Key {maskSecret(c.apiKey)}
+                      {c.content.length > 120
+                        ? `${c.content.slice(0, 120)}…`
+                        : c.content}
                     </span>
                   </div>
-                  <select
-                    className="import-backend-select"
-                    value={backend}
-                    onChange={(e) =>
-                      setBackendOverride((prev) => ({
-                        ...prev,
-                        [c.id]: e.target.value as ApiBackend,
-                      }))
-                    }
-                    title="导入后使用的 API 协议"
-                  >
-                    <option value="chat_completions">OpenAI Chat</option>
-                    <option value="messages">Anthropic</option>
-                    <option value="responses">Responses</option>
-                  </select>
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
-        </div>
+        )
       )}
     </div>
   );

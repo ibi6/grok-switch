@@ -251,6 +251,23 @@ textarea:focus-visible {
   padding: 0 12px;
   transition: 0.18s ease;
   text-align: left;
+  position: relative;
+}
+
+.nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  color: var(--nav-active-text, #c4b5fd);
+  background: var(--accent-soft, rgba(124, 108, 255, 0.18));
+  border: 1px solid var(--accent-ring, rgba(124, 108, 255, 0.28));
 }
 
 .nav-item:hover {
