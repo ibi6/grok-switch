@@ -38,6 +38,10 @@ pub fn capture_auth(paths: &Paths, account_id: &str, name: &str) -> Result<Accou
         status: AccountStatus::Ready,
         last_used_at: None,
         created_at: Local::now().timestamp(),
+        priority: 0,
+        weight: 100,
+        pool_enabled: true,
+        cooldown_until: None,
     };
     account_store::save_account_meta(paths, account.clone())?;
     Ok(account)
@@ -104,6 +108,10 @@ pub fn capture_auth_from(
         status: AccountStatus::Ready,
         last_used_at: None,
         created_at: Local::now().timestamp(),
+        priority: 0,
+        weight: 100,
+        pool_enabled: true,
+        cooldown_until: None,
     };
     account_store::save_account_meta(vault_paths, account.clone())?;
     Ok(account)

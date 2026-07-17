@@ -52,6 +52,26 @@ pub struct Provider {
     pub source: ProviderSource,
     pub created_at: i64,
     pub updated_at: i64,
+    /// Pool: higher priority is tried first (default 0).
+    #[serde(default)]
+    pub priority: i32,
+    /// Pool: relative weight for weighted selection (default 100).
+    #[serde(default = "default_weight")]
+    pub weight: u32,
+    /// When false, excluded from automatic pool / failover.
+    #[serde(default = "default_true")]
+    pub pool_enabled: bool,
+    /// Unix ts until which this provider is cooled down after failures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_until: Option<i64>,
+}
+
+fn default_weight() -> u32 {
+    100
+}
+
+fn default_true() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,6 +95,14 @@ pub struct Account {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<i64>,
     pub created_at: i64,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default = "default_weight")]
+    pub weight: u32,
+    #[serde(default = "default_true")]
+    pub pool_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_until: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -109,6 +137,28 @@ pub struct Settings {
     pub launch_on_startup: bool,
     pub theme: Theme,
     pub tray_enabled: bool,
+    /// Local OpenAI-compatible proxy for failover / request logging.
+    #[serde(default)]
+    pub proxy_enabled: bool,
+    /// Bind port for the local proxy (127.0.0.1 only).
+    #[serde(default = "default_proxy_port")]
+    pub proxy_port: u16,
+    /// Pool selection strategy when proxy failover is active.
+    #[serde(default)]
+    pub pool_strategy: PoolStrategy,
+}
+
+fn default_proxy_port() -> u16 {
+    18765
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PoolStrategy {
+    #[default]
+    Priority,
+    Weighted,
+    RoundRobin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -124,6 +174,8 @@ pub enum ActivityType {
     CaptureAccount,
     Skill,
     Mcp,
+    Proxy,
+    Failover,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

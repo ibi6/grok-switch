@@ -64,6 +64,29 @@ pub fn validate_model_token(s: &str, field: &str) -> Result<String, crate::core:
     Ok(t.to_string())
 }
 
+/// Safe filesystem id for account / backup directory names (no path traversal).
+pub fn is_safe_fs_id(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() || s.len() > 128 {
+        return false;
+    }
+    if s == "." || s == ".." {
+        return false;
+    }
+    s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+}
+
+pub fn validate_fs_id(s: &str, field: &str) -> Result<String, crate::core::AppError> {
+    let t = s.trim();
+    if !is_safe_fs_id(t) {
+        return Err(crate::core::AppError::Invalid(format!(
+            "{field} is not a safe id (allowed: A-Z a-z 0-9 - _ .)"
+        )));
+    }
+    Ok(t.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +160,19 @@ mod tests {
         assert!(!is_safe_model_token(&"x".repeat(129)));
         assert!(validate_model_token("ok-model", "m").is_ok());
         assert!(validate_model_token("bad model", "m").is_err());
+    }
+
+    #[test]
+    fn fs_id_rejects_traversal() {
+        assert!(is_safe_fs_id("acc-1"));
+        assert!(is_safe_fs_id("20260717-120000"));
+        assert!(is_safe_fs_id("uuid-like-abc"));
+        assert!(!is_safe_fs_id(""));
+        assert!(!is_safe_fs_id(".."));
+        assert!(!is_safe_fs_id("../etc"));
+        assert!(!is_safe_fs_id("a/b"));
+        assert!(!is_safe_fs_id("a\\b"));
+        assert!(validate_fs_id("ok_id", "id").is_ok());
+        assert!(validate_fs_id("..", "id").is_err());
     }
 }

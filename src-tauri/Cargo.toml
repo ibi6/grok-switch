@@ -28,7 +28,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 dirs = "6"
-regex = "1"
+tiny_http = "0.12"
 
 [dev-dependencies]
 tempfile = "3"

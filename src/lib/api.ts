@@ -18,6 +18,9 @@ import type {
   McpDraft,
   McpHealthResult,
   McpServer,
+  ProxyStatus,
+  RequestLog,
+  TokenStats,
 } from "./types";
 
 export type { ApiResult } from "./types";
@@ -53,7 +56,13 @@ const mockSettings: Settings = {
   launchOnStartup: false,
   theme: "dark",
   trayEnabled: true,
+  proxyEnabled: false,
+  proxyPort: 18765,
+  poolStrategy: "priority",
 };
+
+let mockProxy: ProxyStatus = { running: false, port: 18765, listen: "" };
+let mockRequestLogs: RequestLog[] = [];
 
 let mockProviders: Provider[] = [
   {
@@ -237,7 +246,19 @@ async function mockInvoke<T>(
       return ok({ ...mockSettings }) as ApiResult<T>;
 
     case "update_settings": {
-      Object.assign(mockSettings, args?.settings as Settings);
+      const incoming = args?.settings as Settings;
+      // Mirror Rust merge_user_settings: preserve runtime current_* pointers.
+      mockSettings.grokHome = incoming.grokHome;
+      mockSettings.grokExecutable = incoming.grokExecutable;
+      mockSettings.officialDefaultModel = incoming.officialDefaultModel;
+      mockSettings.autoBackup = incoming.autoBackup;
+      mockSettings.autoHealthCheck = incoming.autoHealthCheck;
+      mockSettings.launchOnStartup = incoming.launchOnStartup;
+      mockSettings.theme = incoming.theme;
+      mockSettings.trayEnabled = incoming.trayEnabled;
+      mockSettings.proxyEnabled = incoming.proxyEnabled;
+      mockSettings.proxyPort = incoming.proxyPort;
+      mockSettings.poolStrategy = incoming.poolStrategy;
       return ok({ ...mockSettings }) as ApiResult<T>;
     }
 
@@ -631,6 +652,51 @@ async function mockInvoke<T>(
       return ok(result) as ApiResult<T>;
     }
 
+    case "list_request_logs": {
+      const limit = Number(args?.limit ?? 100);
+      return ok(mockRequestLogs.slice(0, limit)) as ApiResult<T>;
+    }
+
+    case "get_token_stats": {
+      const stats: TokenStats = mockRequestLogs.reduce(
+        (acc, l) => {
+          acc.requests += 1;
+          acc.promptTokens += l.promptTokens;
+          acc.completionTokens += l.completionTokens;
+          if (l.ok) acc.okCount += 1;
+          else acc.failCount += 1;
+          return acc;
+        },
+        {
+          requests: 0,
+          promptTokens: 0,
+          completionTokens: 0,
+          okCount: 0,
+          failCount: 0,
+        } satisfies TokenStats,
+      );
+      return ok(stats) as ApiResult<T>;
+    }
+
+    case "get_proxy_status":
+      return ok({ ...mockProxy }) as ApiResult<T>;
+
+    case "start_proxy": {
+      mockProxy = {
+        running: true,
+        port: mockSettings.proxyPort ?? 18765,
+        listen: `http://127.0.0.1:${mockSettings.proxyPort ?? 18765}/v1`,
+      };
+      mockSettings.proxyEnabled = true;
+      return ok({ ...mockProxy }) as ApiResult<T>;
+    }
+
+    case "stop_proxy": {
+      mockProxy = { running: false, port: mockSettings.proxyPort ?? 18765, listen: "" };
+      mockSettings.proxyEnabled = false;
+      return ok({ ...mockProxy }) as ApiResult<T>;
+    }
+
     default:
       return err(`unknown mock command: ${cmd}`) as ApiResult<T>;
   }
@@ -773,6 +839,26 @@ export function setMcpEnabled(name: string, enabled: boolean) {
 
 export function testMcpServer(name: string) {
   return call<McpHealthResult>("test_mcp_server", { name });
+}
+
+export function listRequestLogs(limit?: number) {
+  return call<RequestLog[]>("list_request_logs", { limit });
+}
+
+export function getTokenStats() {
+  return call<TokenStats>("get_token_stats");
+}
+
+export function getProxyStatus() {
+  return call<ProxyStatus>("get_proxy_status");
+}
+
+export function startProxy() {
+  return call<ProxyStatus>("start_proxy");
+}
+
+export function stopProxy() {
+  return call<ProxyStatus>("stop_proxy");
 }
 
 /** True when running inside a Tauri webview. */

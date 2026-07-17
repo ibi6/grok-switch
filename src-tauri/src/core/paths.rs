@@ -21,6 +21,7 @@ pub struct Paths {
     pub ccswitch_db: PathBuf,
     pub ccswitch_skills_dir: PathBuf,
     pub claude_skills_dir: PathBuf,
+    pub app_db: PathBuf,
 }
 
 impl Paths {
@@ -53,6 +54,7 @@ impl Paths {
             ccswitch_db: home.join(".cc-switch").join("cc-switch.db"),
             ccswitch_skills_dir: home.join(".cc-switch").join("skills"),
             claude_skills_dir: home.join(".claude").join("skills"),
+            app_db: app_home.join("grok-switch.db"),
         }
     }
 
@@ -95,6 +97,7 @@ impl Paths {
     }
 
     /// Directory for a single account: `accounts/<id>/`.
+    /// Caller must validate `id` with `validate_fs_id` before joining.
     pub fn account_dir(&self, id: &str) -> PathBuf {
         self.accounts_dir.join(id)
     }
@@ -192,6 +195,7 @@ mod tests {
             root.join(".cc-switch").join("skills")
         );
         assert_eq!(p.claude_skills_dir, root.join(".claude").join("skills"));
+        assert_eq!(p.app_db, root.join(".grok-switch").join("grok-switch.db"));
     }
 
     #[test]

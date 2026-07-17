@@ -22,6 +22,36 @@ pub fn default_settings(paths: &Paths) -> Settings {
         launch_on_startup: false,
         theme: Theme::Dark,
         tray_enabled: true,
+        proxy_enabled: false,
+        proxy_port: 18765,
+        pool_strategy: crate::core::types::PoolStrategy::Priority,
+    }
+}
+
+/// Apply only user-editable preference fields from `incoming` onto the
+/// currently persisted settings. Runtime pointers (`current_*`) always come
+/// from disk so a stale Settings form cannot clobber tray / switch state.
+pub fn merge_user_settings(current: &Settings, incoming: &Settings) -> Settings {
+    Settings {
+        grok_home: incoming.grok_home.clone(),
+        grok_executable: incoming.grok_executable.clone(),
+        official_default_model: incoming.official_default_model.clone(),
+        auto_backup: incoming.auto_backup,
+        auto_health_check: incoming.auto_health_check,
+        launch_on_startup: incoming.launch_on_startup,
+        theme: incoming.theme,
+        tray_enabled: incoming.tray_enabled,
+        proxy_enabled: incoming.proxy_enabled,
+        proxy_port: if incoming.proxy_port == 0 {
+            18765
+        } else {
+            incoming.proxy_port
+        },
+        pool_strategy: incoming.pool_strategy,
+        // Preserve live switch state.
+        current_mode: current.current_mode,
+        current_provider_id: current.current_provider_id.clone(),
+        current_account_id: current.current_account_id.clone(),
     }
 }
 

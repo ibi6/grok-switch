@@ -223,6 +223,10 @@ mod tests {
             source: ProviderSource::Manual,
             created_at: 1,
             updated_at: 2,
+            priority: 0,
+            weight: 100,
+            pool_enabled: true,
+            cooldown_until: None,
         }
     }
 

@@ -214,6 +214,11 @@ pub fn run() {
             commands::delete_mcp_server,
             commands::set_mcp_enabled,
             commands::test_mcp_server,
+            commands::list_request_logs,
+            commands::get_token_stats,
+            commands::get_proxy_status,
+            commands::start_proxy,
+            commands::stop_proxy,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grok Switch");

@@ -50,6 +50,9 @@ pub fn get_account(paths: &Paths, id: &str) -> Result<Option<Account>, AppError>
 /// Save account meta into `accounts/<id>/meta.json` and update `accounts/index.json`.
 pub fn save_account_meta(paths: &Paths, account: Account) -> Result<(), AppError> {
     let _guard = crate::core::lock_store();
+    let id = crate::core::validate_fs_id(&account.id, "account_id")?;
+    let mut account = account;
+    account.id = id;
     paths.ensure_app_dirs()?;
     let dir = paths.account_dir(&account.id);
     fs::create_dir_all(&dir)?;
@@ -69,12 +72,13 @@ pub fn save_account_meta(paths: &Paths, account: Account) -> Result<(), AppError
 /// Remove `accounts/<id>/` directory and drop the entry from the index.
 pub fn delete_account_dir(paths: &Paths, id: &str) -> Result<bool, AppError> {
     let _guard = crate::core::lock_store();
+    let id = crate::core::validate_fs_id(id, "account_id")?;
     let mut index = read_index(paths)?;
     let before = index.items.len();
     index.items.retain(|a| a.id != id);
     let removed_from_index = index.items.len() != before;
 
-    let dir = paths.account_dir(id);
+    let dir = paths.account_dir(&id);
     let dir_existed = dir.exists();
     if dir_existed {
         fs::remove_dir_all(&dir)?;
@@ -101,6 +105,10 @@ mod tests {
             status: AccountStatus::Ready,
             last_used_at: None,
             created_at: 100,
+            priority: 0,
+            weight: 100,
+            pool_enabled: true,
+            cooldown_until: None,
         }
     }
 

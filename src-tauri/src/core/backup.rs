@@ -50,7 +50,8 @@ pub fn create_backup(
 /// Restore `config.toml` / `auth.json` from a backup into the Grok home.
 /// Only files present in the backup are written (missing backup files are skipped).
 pub fn restore_backup(paths: &Paths, backup_id: &str) -> Result<(), AppError> {
-    let dir = paths.backups_dir.join(backup_id);
+    let backup_id = crate::core::validate_fs_id(backup_id, "backup_id")?;
+    let dir = paths.backups_dir.join(&backup_id);
     if !dir.is_dir() {
         return Err(AppError::NotFound(format!("backup not found: {backup_id}")));
     }

@@ -4,11 +4,12 @@ import {
   Copy,
   HeartPulse,
   LoaderCircle,
+  Network,
   Palette,
   ShieldCheck,
   Terminal,
 } from "lucide-react";
-import type { Settings, Theme } from "../lib/types";
+import type { PoolStrategy, ProxyStatus, Settings, Theme } from "../lib/types";
 import * as api from "../lib/api";
 
 export function SettingsPage({
@@ -22,10 +23,19 @@ export function SettingsPage({
 }) {
   const [draft, setDraft] = useState<Settings | null>(settings);
   const [saving, setSaving] = useState(false);
+  const [proxy, setProxy] = useState<ProxyStatus | null>(null);
+  const [proxyBusy, setProxyBusy] = useState(false);
 
   useEffect(() => {
     setDraft(settings);
   }, [settings]);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await api.getProxyStatus();
+      if (res.ok && res.data) setProxy(res.data);
+    })();
+  }, []);
 
   if (!draft) {
     return (
@@ -215,6 +225,96 @@ export function SettingsPage({
             aria-pressed={draft.trayEnabled}
           >
             <span />
+          </button>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <Network size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>本地代理端口</b>
+            <span>127.0.0.1 上的 OpenAI 兼容代理（Failover / 日志）。</span>
+          </div>
+          <input
+            className="setting-input mono"
+            type="number"
+            min={1024}
+            max={65535}
+            value={draft.proxyPort ?? 18765}
+            onChange={(e) =>
+              set("proxyPort", Number(e.target.value) || 18765)
+            }
+          />
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <Network size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>池策略</b>
+            <span>代理故障切换时的供应商选择方式。</span>
+          </div>
+          <select
+            value={draft.poolStrategy ?? "priority"}
+            onChange={(e) =>
+              set("poolStrategy", e.target.value as PoolStrategy)
+            }
+          >
+            <option value="priority">优先级</option>
+            <option value="weighted">权重</option>
+            <option value="round_robin">轮询</option>
+          </select>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <Network size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>本地代理</b>
+            <span>
+              {proxy?.running
+                ? `运行中 · ${proxy.listen}`
+                : "未运行 — 启动后将请求路由到供应商池"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className={proxy?.running ? "primary-btn" : "ghost-btn"}
+            disabled={proxyBusy}
+            onClick={() => {
+              void (async () => {
+                setProxyBusy(true);
+                try {
+                  const res = proxy?.running
+                    ? await api.stopProxy()
+                    : await api.startProxy();
+                  if (!res.ok || !res.data) {
+                    notify(res.error ?? "代理操作失败", "error");
+                    return;
+                  }
+                  setProxy(res.data);
+                  notify(
+                    res.data.running
+                      ? `代理已启动 ${res.data.listen}`
+                      : "代理已停止",
+                  );
+                  await onSaved();
+                } finally {
+                  setProxyBusy(false);
+                }
+              })();
+            }}
+          >
+            {proxyBusy ? (
+              <LoaderCircle className="spin" size={15} />
+            ) : proxy?.running ? (
+              "停止代理"
+            ) : (
+              "启动代理"
+            )}
           </button>
         </div>
 

@@ -11,7 +11,9 @@ use crate::core::health::{self, HealthResult};
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
+use crate::core::db::{self, RequestLog, TokenStats};
 use crate::core::mcp_store::{self, McpDraft, McpHealthResult, McpServer};
+use crate::core::proxy::{self, ProxyStatus};
 use crate::core::skill_store::{self, SkillDetail, SkillDraft, SkillInfo, SkillScope};
 use crate::core::terminal;
 use crate::core::types::{
@@ -493,8 +495,15 @@ pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> ApiRes
     if let Err(e) = validate_model_token(&settings.official_default_model, "officialDefaultModel") {
         return ApiResult::err(e.to_string());
     }
-    match settings_store::save_settings(&state.paths, &settings) {
-        Ok(()) => ApiResult::ok(settings),
+    // Merge editable fields only — never let a stale UI form overwrite
+    // current_mode / current_provider_id / current_account_id.
+    let current = match settings_store::load_settings(&state.paths) {
+        Ok(s) => s,
+        Err(e) => return ApiResult::err(e.to_string()),
+    };
+    let merged = settings_store::merge_user_settings(&current, &settings);
+    match settings_store::save_settings(&state.paths, &merged) {
+        Ok(()) => ApiResult::ok(merged),
         Err(e) => ApiResult::err(e.to_string()),
     }
 }
@@ -829,6 +838,64 @@ pub fn test_mcp_server(state: State<'_, AppState>, name: String) -> ApiResult<Mc
     }
 }
 
+#[tauri::command]
+pub fn list_request_logs(
+    state: State<'_, AppState>,
+    limit: Option<usize>,
+) -> ApiResult<Vec<RequestLog>> {
+    ApiResult::from_result(db::list_request_logs(&state.paths, limit.unwrap_or(100)))
+}
+
+#[tauri::command]
+pub fn get_token_stats(state: State<'_, AppState>) -> ApiResult<TokenStats> {
+    ApiResult::from_result(db::token_stats(&state.paths))
+}
+
+#[tauri::command]
+pub fn get_proxy_status() -> ApiResult<ProxyStatus> {
+    ApiResult::ok(proxy::status())
+}
+
+#[tauri::command]
+pub fn start_proxy(state: State<'_, AppState>) -> ApiResult<ProxyStatus> {
+    match proxy::start(&state.paths) {
+        Ok(st) => {
+            // Persist enabled flag.
+            if let Ok(mut s) = settings_store::load_settings(&state.paths) {
+                s.proxy_enabled = true;
+                if s.proxy_port == 0 {
+                    s.proxy_port = st.port;
+                }
+                let _ = settings_store::save_settings(&state.paths, &s);
+            }
+            log_activity(
+                &state.paths,
+                ActivityType::Proxy,
+                &format!("Proxy started on {}", st.listen),
+                Some(HashMap::from([("port".into(), st.port.to_string())])),
+            );
+            ApiResult::ok(st)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn stop_proxy(state: State<'_, AppState>) -> ApiResult<ProxyStatus> {
+    let st = proxy::stop();
+    if let Ok(mut s) = settings_store::load_settings(&state.paths) {
+        s.proxy_enabled = false;
+        let _ = settings_store::save_settings(&state.paths, &s);
+    }
+    log_activity(
+        &state.paths,
+        ActivityType::Proxy,
+        "Proxy stopped",
+        None,
+    );
+    ApiResult::ok(st)
+}
+
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -867,6 +934,10 @@ mod tests {
             source: ProviderSource::Manual,
             created_at: 1,
             updated_at: 2,
+            priority: 0,
+            weight: 100,
+            pool_enabled: true,
+            cooldown_until: None,
         }
     }
 

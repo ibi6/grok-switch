@@ -245,6 +245,10 @@ export function ProviderForm({
       source: initial?.source ?? "manual",
       createdAt: initial?.createdAt ?? now,
       updatedAt: now,
+      priority: initial?.priority ?? 0,
+      weight: initial?.weight ?? 100,
+      poolEnabled: initial?.poolEnabled ?? true,
+      cooldownUntil: initial?.cooldownUntil,
     };
   };
 

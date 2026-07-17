@@ -28,7 +28,9 @@ export type ActivityType =
   | "error"
   | "capture_account"
   | "skill"
-  | "mcp";
+  | "mcp"
+  | "proxy"
+  | "failover";
 
 export interface ModelEntry {
   /** Section key WITHOUT `gs-` prefix */
@@ -56,6 +58,10 @@ export interface Provider {
   source: ProviderSource;
   createdAt: number;
   updatedAt: number;
+  priority?: number;
+  weight?: number;
+  poolEnabled?: boolean;
+  cooldownUntil?: number;
 }
 
 export interface Account {
@@ -66,7 +72,13 @@ export interface Account {
   status: AccountStatus;
   lastUsedAt?: number;
   createdAt: number;
+  priority?: number;
+  weight?: number;
+  poolEnabled?: boolean;
+  cooldownUntil?: number;
 }
+
+export type PoolStrategy = "priority" | "weighted" | "round_robin";
 
 export interface Settings {
   grokHome: string;
@@ -80,6 +92,38 @@ export interface Settings {
   launchOnStartup: boolean;
   theme: Theme;
   trayEnabled: boolean;
+  proxyEnabled?: boolean;
+  proxyPort?: number;
+  poolStrategy?: PoolStrategy;
+}
+
+export interface RequestLog {
+  id: number;
+  ts: number;
+  providerId?: string;
+  model?: string;
+  method: string;
+  path: string;
+  status: number;
+  latencyMs: number;
+  promptTokens: number;
+  completionTokens: number;
+  ok: boolean;
+  detail: string;
+}
+
+export interface TokenStats {
+  requests: number;
+  promptTokens: number;
+  completionTokens: number;
+  okCount: number;
+  failCount: number;
+}
+
+export interface ProxyStatus {
+  running: boolean;
+  port: number;
+  listen: string;
 }
 
 export interface Activity {

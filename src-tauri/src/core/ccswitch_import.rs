@@ -159,6 +159,10 @@ pub fn candidates_to_providers(selected: &[ImportCandidate]) -> Vec<Provider> {
                 source: ProviderSource::CcSwitch,
                 created_at: now,
                 updated_at: now,
+                priority: 0,
+                weight: 100,
+                pool_enabled: true,
+                cooldown_until: None,
             }
         })
         .collect()
@@ -400,6 +404,10 @@ mod tests {
             source: ProviderSource::Manual,
             created_at: 1,
             updated_at: 1,
+            priority: 0,
+            weight: 100,
+            pool_enabled: true,
+            cooldown_until: None,
         }];
         let filtered = dedup_candidates(candidates, &existing);
         assert_eq!(filtered.len(), 1);

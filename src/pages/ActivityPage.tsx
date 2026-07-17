@@ -11,7 +11,7 @@ import {
   Terminal,
   UserRound,
 } from "lucide-react";
-import type { Activity, BackupInfo } from "../lib/types";
+import type { Activity, BackupInfo, RequestLog, TokenStats } from "../lib/types";
 import * as api from "../lib/api";
 
 function formatTs(ts: number): string {
@@ -43,6 +43,10 @@ function labelFor(type: Activity["type"]): string {
       return "Skill";
     case "mcp":
       return "MCP";
+    case "proxy":
+      return "代理";
+    case "failover":
+      return "故障切换";
     case "error":
       return "错误";
     default:
@@ -83,6 +87,8 @@ export function ActivityPage({
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(true);
   const [restoring, setRestoring] = useState<string | null>(null);
+  const [reqLogs, setReqLogs] = useState<RequestLog[]>([]);
+  const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
 
   const loadBackups = useCallback(async () => {
     setLoadingBackups(true);
@@ -95,9 +101,19 @@ export function ActivityPage({
     }
   }, []);
 
+  const loadProxyTelemetry = useCallback(async () => {
+    const [logs, stats] = await Promise.all([
+      api.listRequestLogs(50),
+      api.getTokenStats(),
+    ]);
+    if (logs.ok && logs.data) setReqLogs(logs.data);
+    if (stats.ok && stats.data) setTokenStats(stats.data);
+  }, []);
+
   useEffect(() => {
     void loadBackups();
-  }, [loadBackups, activity.length]);
+    void loadProxyTelemetry();
+  }, [loadBackups, loadProxyTelemetry, activity.length]);
 
   const onRestore = async (id: string) => {
     if (
@@ -205,6 +221,70 @@ export function ActivityPage({
                   恢复
                 </button>
               </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="section-head">
+        <div>
+          <h2>请求与 Token</h2>
+          <p>本地代理产生的上游请求日志（SQLite）。</p>
+        </div>
+        <button
+          type="button"
+          className="ghost-btn"
+          onClick={() => void loadProxyTelemetry()}
+        >
+          <RefreshCw size={15} /> 刷新
+        </button>
+      </div>
+
+      {tokenStats && (
+        <div className="stats-row" style={{ marginBottom: 16 }}>
+          <div className="stat-card">
+            <small>请求数</small>
+            <b>{tokenStats.requests}</b>
+            <span>
+              成功 {tokenStats.okCount} · 失败 {tokenStats.failCount}
+            </span>
+          </div>
+          <div className="stat-card">
+            <small>Prompt tokens</small>
+            <b>{tokenStats.promptTokens}</b>
+            <span>输入侧累计</span>
+          </div>
+          <div className="stat-card">
+            <small>Completion tokens</small>
+            <b>{tokenStats.completionTokens}</b>
+            <span>输出侧累计</span>
+          </div>
+        </div>
+      )}
+
+      {reqLogs.length === 0 ? (
+        <div className="empty-state" style={{ marginBottom: 20 }}>
+          <b>暂无代理请求</b>
+          <p>在设置中启动本地代理，并将 Grok base_url 指向它后会出现日志。</p>
+        </div>
+      ) : (
+        <div className="activity-list full" style={{ marginBottom: 24 }}>
+          {reqLogs.map((l) => (
+            <div className="activity-row" key={l.id}>
+              <div className={l.ok ? "activity-icon green" : "activity-icon"}>
+                {l.ok ? <Check size={13} /> : <AlertTriangle size={13} />}
+              </div>
+              <div>
+                <b>
+                  {l.method} {l.path} · {l.status || "ERR"}
+                </b>
+                <span>
+                  {(l.model ?? "—") +
+                    ` · ${l.latencyMs}ms · in ${l.promptTokens} / out ${l.completionTokens}`}
+                  {l.detail ? ` · ${l.detail}` : ""}
+                </span>
+              </div>
+              <time>{formatTs(l.ts)}</time>
             </div>
           ))}
         </div>

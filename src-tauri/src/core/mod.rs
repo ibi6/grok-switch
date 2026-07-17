@@ -5,13 +5,16 @@ pub mod backup;
 pub mod ccswitch_import;
 pub mod cli_status;
 pub mod config_writer;
+pub mod db;
 pub mod error;
 pub mod health;
 pub mod mask;
 pub mod mcp_store;
 pub mod normalize;
 pub mod paths;
+pub mod pool;
 pub mod provider_store;
+pub mod proxy;
 pub mod settings_store;
 pub mod skill_store;
 pub mod terminal;
@@ -20,8 +23,8 @@ pub mod types;
 pub use error::AppError;
 pub use mask::mask_secret;
 pub use normalize::{
-    gs_model_key, is_safe_model_token, normalize_base_url, sanitize_model_name,
-    validate_model_token,
+    gs_model_key, is_safe_fs_id, is_safe_model_token, normalize_base_url, sanitize_model_name,
+    validate_fs_id, validate_model_token,
 };
 pub use paths::Paths;
 pub use types::*;
