@@ -426,13 +426,15 @@ fn build_upstream(
     Ok(builder)
 }
 
+type ForwardResult = (u16, Vec<u8>, u64, u64, Option<String>);
+
 fn forward(
     method: &Method,
     path: &str,
     body: &[u8],
     provider: &Provider,
     is_stream: bool,
-) -> Result<(u16, Vec<u8>, u64, u64, Option<String>), String> {
+) -> Result<ForwardResult, String> {
     let mut builder = build_upstream(method, path, body, provider)?;
     if is_stream {
         builder = builder.header("Accept", "text/event-stream");
