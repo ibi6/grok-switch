@@ -7,6 +7,7 @@
 use crate::core::normalize::validate_model_token;
 use crate::core::paths::Paths;
 use crate::core::settings_store;
+use crate::core::types::PreferredTerminal;
 use crate::core::AppError;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -41,7 +42,12 @@ pub fn open_grok_terminal(paths: &Paths, model: Option<&str>) -> Result<String, 
         None => "grok".to_string(),
     };
 
-    spawn_terminal(&exe, model_token.as_deref(), &cwd)?;
+    spawn_terminal(
+        &exe,
+        model_token.as_deref(),
+        &cwd,
+        settings.preferred_terminal,
+    )?;
     Ok(display)
 }
 
@@ -58,51 +64,95 @@ fn resolve_executable(ops: &Paths, configured: &str) -> PathBuf {
 
 /// Spawn a terminal that runs the given grok binary (with optional -m).
 ///
-/// On Windows we try Windows Terminal (`wt`) first, then fall back to
-/// PowerShell. On Unix we try a short list of common terminal emulators.
-/// Arguments are always passed as separate argv entries — never via a
-/// concatenated shell string — so metacharacters in the model id cannot
-/// escape even if validation were ever loosened.
-fn spawn_terminal(exe: &Path, model: Option<&str>, cwd: &Path) -> Result<(), AppError> {
+/// Respects `PreferredTerminal` (CC Switch-style). Arguments are always passed
+/// as separate argv entries — never via a concatenated shell string.
+fn spawn_terminal(
+    exe: &Path,
+    model: Option<&str>,
+    cwd: &Path,
+    preferred: PreferredTerminal,
+) -> Result<(), AppError> {
     #[cfg(windows)]
     {
-        spawn_windows(exe, model, cwd)
+        spawn_windows(exe, model, cwd, preferred)
     }
     #[cfg(not(windows))]
     {
+        let _ = preferred;
         spawn_unix(exe, model, cwd)
     }
 }
 
 #[cfg(windows)]
-fn spawn_windows(exe: &Path, model: Option<&str>, cwd: &Path) -> Result<(), AppError> {
-    // Prefer Windows Terminal when available.
-    let mut wt = Command::new("wt");
-    wt.arg("-d")
-        .arg(cwd)
-        .arg("powershell")
-        .arg("-NoExit")
-        .arg("-Command");
-    // Build a PowerShell command as a *single* argument. The model token has
-    // already been whitelist-validated, so embedding it is safe; we still use
-    // single-quotes around the path to tolerate spaces in the exe path.
+fn spawn_windows(
+    exe: &Path,
+    model: Option<&str>,
+    cwd: &Path,
+    preferred: PreferredTerminal,
+) -> Result<(), AppError> {
     let ps = build_ps_command(exe, model);
-    wt.arg(&ps);
-    match wt.spawn() {
-        Ok(_) => return Ok(()),
-        Err(_) => { /* fall through to PowerShell */ }
+    let order: &[PreferredTerminal] = match preferred {
+        PreferredTerminal::WindowsTerminal => &[
+            PreferredTerminal::WindowsTerminal,
+            PreferredTerminal::Powershell,
+            PreferredTerminal::Cmd,
+        ],
+        PreferredTerminal::Powershell => &[
+            PreferredTerminal::Powershell,
+            PreferredTerminal::WindowsTerminal,
+            PreferredTerminal::Cmd,
+        ],
+        PreferredTerminal::Cmd => &[
+            PreferredTerminal::Cmd,
+            PreferredTerminal::Powershell,
+            PreferredTerminal::WindowsTerminal,
+        ],
+    };
+
+    for choice in order {
+        match choice {
+            PreferredTerminal::WindowsTerminal => {
+                let mut wt = Command::new("wt");
+                wt.arg("-d")
+                    .arg(cwd)
+                    .arg("powershell")
+                    .arg("-NoExit")
+                    .arg("-Command")
+                    .arg(&ps);
+                if wt.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+            PreferredTerminal::Powershell => {
+                let mut ps_cmd = Command::new("powershell");
+                ps_cmd
+                    .arg("-NoExit")
+                    .arg("-Command")
+                    .arg(&ps)
+                    .current_dir(cwd);
+                if ps_cmd.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+            PreferredTerminal::Cmd => {
+                // cmd /K starts keep-open; pass the grok invocation as one /C-like keep shell.
+                let path = exe.display().to_string();
+                let line = match model {
+                    Some(m) => format!("\"{path}\" -m {m}"),
+                    None => format!("\"{path}\""),
+                };
+                let mut cmd = Command::new("cmd");
+                cmd.arg("/K").arg(&line).current_dir(cwd);
+                if cmd.spawn().is_ok() {
+                    return Ok(());
+                }
+            }
+        }
     }
 
-    let mut ps_cmd = Command::new("powershell");
-    ps_cmd
-        .arg("-NoExit")
-        .arg("-Command")
-        .arg(&ps)
-        .current_dir(cwd);
-    ps_cmd
-        .spawn()
-        .map_err(|e| AppError::Message(format!("failed to open terminal: {e}")))?;
-    Ok(())
+    Err(AppError::Message(
+        "failed to open terminal (wt / powershell / cmd all failed)".into(),
+    ))
 }
 
 #[cfg(windows)]

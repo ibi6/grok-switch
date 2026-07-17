@@ -17,6 +17,7 @@ pub mod provider_store;
 pub mod proxy;
 pub mod settings_store;
 pub mod skill_store;
+pub mod startup;
 pub mod terminal;
 pub mod types;
 

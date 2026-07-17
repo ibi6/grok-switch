@@ -60,6 +60,10 @@ const mockSettings: Settings = {
   proxyEnabled: false,
   proxyPort: 18765,
   poolStrategy: "priority",
+  silentStartup: false,
+  preferredTerminal: "windows_terminal",
+  autoSkillSync: false,
+  confirmOnSwitch: false,
 };
 
 let mockProxy: ProxyStatus = { running: false, port: 18765, listen: "" };
@@ -268,6 +272,10 @@ async function mockInvoke<T>(
       mockSettings.proxyEnabled = incoming.proxyEnabled;
       mockSettings.proxyPort = incoming.proxyPort;
       mockSettings.poolStrategy = incoming.poolStrategy;
+      mockSettings.silentStartup = incoming.silentStartup;
+      mockSettings.preferredTerminal = incoming.preferredTerminal;
+      mockSettings.autoSkillSync = incoming.autoSkillSync;
+      mockSettings.confirmOnSwitch = incoming.confirmOnSwitch;
       return ok({ ...mockSettings }) as ApiResult<T>;
     }
 
@@ -280,6 +288,23 @@ async function mockInvoke<T>(
       if (idx >= 0) mockProviders[idx] = provider;
       else mockProviders = [...mockProviders, provider];
       return ok(provider) as ApiResult<T>;
+    }
+
+    case "duplicate_provider": {
+      const id = String(args?.id ?? "");
+      const src = mockProviders.find((p) => p.id === id);
+      if (!src) return err(`provider not found: ${id}`) as ApiResult<T>;
+      const copy: Provider = {
+        ...src,
+        id: `prov-${Date.now()}`,
+        name: `${src.name} (副本)`,
+        createdAt: now(),
+        updatedAt: now(),
+        cooldownUntil: undefined,
+        source: "manual",
+      };
+      mockProviders = [...mockProviders, copy];
+      return ok(copy) as ApiResult<T>;
     }
 
     case "delete_provider": {
@@ -784,6 +809,10 @@ export function listProviders() {
 
 export function upsertProvider(provider: Provider) {
   return call<Provider>("upsert_provider", { provider });
+}
+
+export function duplicateProvider(id: string) {
+  return call<Provider>("duplicate_provider", { id });
 }
 
 export function deleteProvider(id: string) {

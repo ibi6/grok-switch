@@ -25,6 +25,10 @@ pub fn default_settings(paths: &Paths) -> Settings {
         proxy_enabled: false,
         proxy_port: 18765,
         pool_strategy: crate::core::types::PoolStrategy::Priority,
+        silent_startup: false,
+        preferred_terminal: crate::core::types::PreferredTerminal::WindowsTerminal,
+        auto_skill_sync: false,
+        confirm_on_switch: false,
     }
 }
 
@@ -48,6 +52,10 @@ pub fn merge_user_settings(current: &Settings, incoming: &Settings) -> Settings 
             incoming.proxy_port
         },
         pool_strategy: incoming.pool_strategy,
+        silent_startup: incoming.silent_startup,
+        preferred_terminal: incoming.preferred_terminal,
+        auto_skill_sync: incoming.auto_skill_sync,
+        confirm_on_switch: incoming.confirm_on_switch,
         // Preserve live switch state.
         current_mode: current.current_mode,
         current_provider_id: current.current_provider_id.clone(),

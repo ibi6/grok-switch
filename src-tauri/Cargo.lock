@@ -1214,6 +1214,7 @@ dependencies = [
  "tiny_http",
  "toml_edit 0.22.27",
  "uuid",
+ "winreg",
 ]
 
 [[package]]

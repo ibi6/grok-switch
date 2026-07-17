@@ -9,7 +9,13 @@ import {
   ShieldCheck,
   Terminal,
 } from "lucide-react";
-import type { PoolStrategy, ProxyStatus, Settings, Theme } from "../lib/types";
+import type {
+  PoolStrategy,
+  PreferredTerminal,
+  ProxyStatus,
+  Settings,
+  Theme,
+} from "../lib/types";
 import * as api from "../lib/api";
 
 export function SettingsPage({
@@ -324,14 +330,87 @@ export function SettingsPage({
           </div>
           <div className="setting-copy">
             <b>开机启动</b>
-            <span>即将支持（当前开关仅保存偏好，不会写入系统启动项）。</span>
+            <span>写入 Windows 启动项（与 CC Switch 一致）。</span>
           </div>
           <button
             type="button"
             className={draft.launchOnStartup ? "toggle on" : "toggle"}
             onClick={() => set("launchOnStartup", !draft.launchOnStartup)}
             aria-pressed={draft.launchOnStartup}
-            title="即将支持"
+          >
+            <span />
+          </button>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <ShieldCheck size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>静默启动</b>
+            <span>启动后直接进托盘，不弹主窗口（CC Switch silentStartup）。</span>
+          </div>
+          <button
+            type="button"
+            className={draft.silentStartup ? "toggle on" : "toggle"}
+            onClick={() => set("silentStartup", !draft.silentStartup)}
+            aria-pressed={!!draft.silentStartup}
+          >
+            <span />
+          </button>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <Terminal size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>首选终端</b>
+            <span>「打开 Grok」使用的终端（对齐 CC Switch preferredTerminal）。</span>
+          </div>
+          <select
+            value={draft.preferredTerminal ?? "windows_terminal"}
+            onChange={(e) =>
+              set("preferredTerminal", e.target.value as PreferredTerminal)
+            }
+          >
+            <option value="windows_terminal">Windows Terminal</option>
+            <option value="powershell">PowerShell</option>
+            <option value="cmd">cmd</option>
+          </select>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <ShieldCheck size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>启动时同步 Skills</b>
+            <span>从 ~/.cc-switch/skills 自动导入新 skill（不覆盖已有）。</span>
+          </div>
+          <button
+            type="button"
+            className={draft.autoSkillSync ? "toggle on" : "toggle"}
+            onClick={() => set("autoSkillSync", !draft.autoSkillSync)}
+            aria-pressed={!!draft.autoSkillSync}
+          >
+            <span />
+          </button>
+        </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <ShieldCheck size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>切换前确认</b>
+            <span>点卡片切换供应商时弹出确认（更像 CC Switch 的安全切换）。</span>
+          </div>
+          <button
+            type="button"
+            className={draft.confirmOnSwitch ? "toggle on" : "toggle"}
+            onClick={() => set("confirmOnSwitch", !draft.confirmOnSwitch)}
+            aria-pressed={!!draft.confirmOnSwitch}
           >
             <span />
           </button>

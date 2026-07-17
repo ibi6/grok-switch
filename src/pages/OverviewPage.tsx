@@ -53,6 +53,7 @@ export function OverviewPage({
   activity,
   onNavigate,
   onRefreshCli,
+  onQuickEnable,
 }: {
   settings: Settings | null;
   providers: Provider[];
@@ -61,6 +62,7 @@ export function OverviewPage({
   activity: Activity[];
   onNavigate: (p: PageId) => void;
   onRefreshCli: () => void;
+  onQuickEnable?: (providerId: string) => void;
 }) {
   const [proxy, setProxy] = useState<ProxyStatus | null>(null);
   const [stats, setStats] = useState<TokenStats | null>(null);
@@ -104,6 +106,14 @@ export function OverviewPage({
   }
 
   const recent = activity.slice(0, 6);
+  const quickProviders = [...providers]
+    .sort((a, b) => {
+      const ac = a.id === settings?.currentProviderId ? 1 : 0;
+      const bc = b.id === settings?.currentProviderId ? 1 : 0;
+      if (ac !== bc) return bc - ac;
+      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    })
+    .slice(0, 5);
 
   return (
     <div className="page-wrap">
@@ -145,6 +155,40 @@ export function OverviewPage({
           </span>
         </div>
       </div>
+
+      {quickProviders.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div className="section-head no-margin" style={{ marginBottom: 10 }}>
+            <div>
+              <h2>快速切换</h2>
+              <p>CC Switch 风格：总览一键启用最近供应商。</p>
+            </div>
+          </div>
+          <div className="header-actions" style={{ flexWrap: "wrap", gap: 8 }}>
+            {quickProviders.map((p) => {
+              const active =
+                settings?.currentMode === "provider" &&
+                settings.currentProviderId === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  className={active ? "primary-btn" : "ghost-btn"}
+                  onClick={() =>
+                    active
+                      ? onNavigate("providers")
+                      : onQuickEnable?.(p.id)
+                  }
+                  title={p.baseUrl}
+                >
+                  {active ? "✓ " : ""}
+                  {p.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="provider-list" style={{ marginBottom: 16 }}>
         <button

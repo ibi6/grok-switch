@@ -79,6 +79,7 @@ export interface Account {
 }
 
 export type PoolStrategy = "priority" | "weighted" | "round_robin";
+export type PreferredTerminal = "windows_terminal" | "powershell" | "cmd";
 
 export interface Settings {
   grokHome: string;
@@ -95,6 +96,10 @@ export interface Settings {
   proxyEnabled?: boolean;
   proxyPort?: number;
   poolStrategy?: PoolStrategy;
+  silentStartup?: boolean;
+  preferredTerminal?: PreferredTerminal;
+  autoSkillSync?: boolean;
+  confirmOnSwitch?: boolean;
 }
 
 export interface RequestLog {

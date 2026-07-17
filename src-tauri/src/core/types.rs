@@ -146,6 +146,27 @@ pub struct Settings {
     /// Pool selection strategy when proxy failover is active.
     #[serde(default)]
     pub pool_strategy: PoolStrategy,
+    /// CC Switch-style: start minimized to tray.
+    #[serde(default)]
+    pub silent_startup: bool,
+    /// Preferred terminal for "打开 Grok".
+    #[serde(default)]
+    pub preferred_terminal: PreferredTerminal,
+    /// On launch, import new skills from ~/.cc-switch/skills (skip existing).
+    #[serde(default)]
+    pub auto_skill_sync: bool,
+    /// Confirm before provider switch when health fails / always soft confirm.
+    #[serde(default)]
+    pub confirm_on_switch: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PreferredTerminal {
+    #[default]
+    WindowsTerminal,
+    Powershell,
+    Cmd,
 }
 
 fn default_proxy_port() -> u16 {

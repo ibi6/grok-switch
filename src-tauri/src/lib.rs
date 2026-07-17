@@ -183,15 +183,38 @@ pub fn run() {
             }
             spawn_focus_watcher(app.handle().clone(), paths.clone());
 
+            let settings = crate::core::settings_store::load_settings(&paths).ok();
+
             // Auto-start local proxy when settings.proxy_enabled is sticky.
-            match crate::core::settings_store::load_settings(&paths) {
-                Ok(s) if s.proxy_enabled => {
-                    match crate::core::proxy::start(&paths) {
-                        Ok(st) => eprintln!("proxy auto-started on {}", st.listen),
-                        Err(e) => eprintln!("proxy auto-start failed: {e}"),
-                    }
+            if settings.as_ref().is_some_and(|s| s.proxy_enabled) {
+                match crate::core::proxy::start(&paths) {
+                    Ok(st) => eprintln!("proxy auto-started on {}", st.listen),
+                    Err(e) => eprintln!("proxy auto-start failed: {e}"),
                 }
-                _ => {}
+            }
+
+            // CC Switch-style auto skill sync from ~/.cc-switch/skills.
+            if settings.as_ref().is_some_and(|s| s.auto_skill_sync) {
+                match crate::core::skill_store::import_skills(
+                    &paths,
+                    &[],
+                    crate::core::skill_store::SkillScope::CcSwitch,
+                ) {
+                    Ok(items) if !items.is_empty() => {
+                        eprintln!("auto skill sync: imported {}", items.len());
+                    }
+                    Ok(_) => {}
+                    Err(e) => eprintln!("auto skill sync skipped: {e}"),
+                }
+            }
+
+            // Silent startup: start hidden in tray (CC Switch silentStartup).
+            let silent = settings.as_ref().is_some_and(|s| s.silent_startup)
+                || std::env::args().any(|a| a == "--silent");
+            if silent {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
             }
 
             // Close-to-tray when tray is enabled: hide window instead of quit.
@@ -219,6 +242,7 @@ pub fn run() {
             commands::update_settings,
             commands::list_providers,
             commands::upsert_provider,
+            commands::duplicate_provider,
             commands::delete_provider,
             commands::enable_provider,
             commands::test_provider,

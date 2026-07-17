@@ -86,7 +86,15 @@ fn build_menu<R: Runtime>(
     let open_i = MenuItem::with_id(app, "open", "打开主界面", true, None::<&str>)?;
     let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let refresh_i = MenuItem::with_id(app, "refresh", "刷新菜单", true, None::<&str>)?;
+    let proxy_running = crate::core::proxy::status().running;
+    let proxy_label = if proxy_running {
+        "停止本地代理"
+    } else {
+        "启动本地代理"
+    };
+    let proxy_i = MenuItem::with_id(app, "proxy_toggle", proxy_label, true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
 
     let (recent, current) = recent_providers(paths);
     let mut provider_items: Vec<MenuItem<R>> = Vec::new();
@@ -110,15 +118,14 @@ fn build_menu<R: Runtime>(
     if !provider_items.is_empty() {
         items.push(&sep);
     }
+    items.push(&proxy_i);
+    items.push(&sep2);
     items.push(&open_i);
     items.push(&refresh_i);
     items.push(&quit_i);
 
     let menu = Menu::with_items(app, &items)?;
-    // Keep provider_items alive until menu is set on tray — caller drops after set_menu.
-    // We return them so they aren't dropped before set_menu.
-    let _keep = (open_i, quit_i, refresh_i, sep);
-    // Actually Menu::with_items clones item refs internally in Tauri 2 — items can drop.
+    let _keep = (open_i, quit_i, refresh_i, proxy_i, sep, sep2);
     let _ = _keep;
     Ok((menu, provider_items))
 }
@@ -171,6 +178,31 @@ pub fn setup_tray(app: &AppHandle<Wry>, paths: &Paths) -> tauri::Result<()> {
             }
             if id == "refresh" {
                 refresh_tray(app, &paths_for_refresh);
+                return;
+            }
+            if id == "proxy_toggle" {
+                if crate::core::proxy::status().running {
+                    let _ = crate::core::proxy::stop();
+                    if let Ok(mut s) = load_settings(&paths_for_menu) {
+                        s.proxy_enabled = false;
+                        let _ = crate::core::settings_store::save_settings(&paths_for_menu, &s);
+                    }
+                    eprintln!("tray: proxy stopped");
+                } else {
+                    match crate::core::proxy::start(&paths_for_menu) {
+                        Ok(st) => {
+                            if let Ok(mut s) = load_settings(&paths_for_menu) {
+                                s.proxy_enabled = true;
+                                s.proxy_port = st.port;
+                                let _ =
+                                    crate::core::settings_store::save_settings(&paths_for_menu, &s);
+                            }
+                            eprintln!("tray: proxy started on {}", st.listen);
+                        }
+                        Err(e) => eprintln!("tray: proxy start failed: {e}"),
+                    }
+                }
+                refresh_tray(app, &paths_for_menu);
                 return;
             }
             if let Some(pid) = id.strip_prefix("prov:") {

@@ -301,6 +301,51 @@ export default function App() {
                   activity={activity}
                   onNavigate={setPage}
                   onRefreshCli={() => void refreshCli()}
+                  onQuickEnable={(id) => {
+                    void (async () => {
+                      const p = providers.find((x) => x.id === id);
+                      if (settings?.confirmOnSwitch) {
+                        const ok = window.confirm(
+                          `切换到「${p?.name ?? id}」？`,
+                        );
+                        if (!ok) return;
+                      }
+                      const res = await withSwitching(
+                        () => api.enableProvider(id, false),
+                        {
+                          title: "快速切换",
+                          detail: `启用 ${p?.name ?? id}…`,
+                        },
+                      );
+                      if (!res) return;
+                      if (!res.ok) {
+                        if (res.error?.includes("NEEDS_FORCE")) {
+                          const ok = window.confirm(
+                            `${res.error}\n\n仍要强制启用？`,
+                          );
+                          if (!ok) {
+                            notify(res.error, "error");
+                            return;
+                          }
+                          const forced = await withSwitching(
+                            () => api.enableProvider(id, true),
+                            { title: "强制启用", detail: p?.name ?? id },
+                          );
+                          if (!forced?.ok) {
+                            notify(forced?.error ?? "启用失败", "error");
+                            return;
+                          }
+                          notify(`已强制启用 ${p?.name ?? id}`);
+                          await refresh();
+                          return;
+                        }
+                        notify(res.error ?? "启用失败", "error");
+                        return;
+                      }
+                      notify(`已切换到 ${p?.name ?? id}`);
+                      await refresh();
+                    })();
+                  }}
                 />
               )}
               {page === "providers" && (

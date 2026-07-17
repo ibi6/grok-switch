@@ -29,6 +29,7 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 dirs = "6"
 tiny_http = "0.12"
+winreg = "0.55"
 
 [dev-dependencies]
 tempfile = "3"

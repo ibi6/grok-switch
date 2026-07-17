@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Check,
+  Copy,
   LoaderCircle,
   MoreHorizontal,
   Pencil,
@@ -122,6 +123,12 @@ export function ProvidersPage({
       notify("已是当前供应商");
       return;
     }
+    if (settings?.confirmOnSwitch) {
+      const ok = window.confirm(
+        `切换到「${provider?.name ?? id}」？\n将写入 ~/.grok/config.toml。`,
+      );
+      if (!ok) return;
+    }
     setBusy(`enable-${id}`);
     try {
       const res = await withSwitching(() => api.enableProvider(id, false), {
@@ -156,6 +163,23 @@ export function ProvidersPage({
       }
 
       await finishEnableOk(provider, false);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const onDuplicate = async (id: string) => {
+    setMenuId(null);
+    setBusy(`dup-${id}`);
+    try {
+      const res = await api.duplicateProvider(id);
+      if (!res.ok || !res.data) {
+        notify(res.error ?? "复制失败", "error");
+        return;
+      }
+      notify(`已复制：${res.data.name}`);
+      await onRefresh();
+      openEdit(res.data);
     } finally {
       setBusy(null);
     }
@@ -399,6 +423,13 @@ export function ProvidersPage({
                         <button type="button" onClick={() => openEdit(p)}>
                           <Pencil size={14} />
                           编辑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void onDuplicate(p.id)}
+                        >
+                          <Copy size={14} />
+                          复制
                         </button>
                         <button
                           type="button"

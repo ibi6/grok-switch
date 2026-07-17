@@ -501,7 +501,20 @@ pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> ApiRes
         Ok(s) => s,
         Err(e) => return ApiResult::err(e.to_string()),
     };
-    let merged = settings_store::merge_user_settings(&current, &settings);
+    let mut merged = settings_store::merge_user_settings(&current, &settings);
+
+    // CC Switch parity: really write Windows Run key for launch-on-startup.
+    if merged.launch_on_startup != current.launch_on_startup {
+        match crate::core::startup::set_launch_on_startup(merged.launch_on_startup) {
+            Ok(on) => merged.launch_on_startup = on,
+            Err(e) => {
+                // Keep preference false if OS registration failed.
+                merged.launch_on_startup = false;
+                return ApiResult::err(format!("开机启动设置失败: {e}"));
+            }
+        }
+    }
+
     match settings_store::save_settings(&state.paths, &merged) {
         Ok(()) => ApiResult::ok(merged),
         Err(e) => ApiResult::err(e.to_string()),
@@ -535,6 +548,41 @@ pub fn upsert_provider(state: State<'_, AppState>, provider: Provider) -> ApiRes
             }
             ApiResult::ok(provider)
         }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+/// Duplicate a provider with a new id/name (CC Switch-style quick clone).
+#[tauri::command]
+pub fn duplicate_provider(
+    state: State<'_, AppState>,
+    id: String,
+) -> ApiResult<Provider> {
+    match provider_store::get_provider(&state.paths, &id) {
+        Ok(Some(mut p)) => {
+            p.id = uuid::Uuid::new_v4().to_string();
+            p.name = format!("{} (副本)", p.name);
+            p.created_at = chrono::Local::now().timestamp();
+            p.updated_at = p.created_at;
+            p.cooldown_until = None;
+            p.source = crate::core::types::ProviderSource::Manual;
+            if let Err(e) = config_writer::validate_provider(&p) {
+                return ApiResult::err(e.to_string());
+            }
+            match provider_store::upsert_provider(&state.paths, p.clone()) {
+                Ok(()) => {
+                    log_activity(
+                        &state.paths,
+                        ActivityType::Import,
+                        &format!("Duplicated provider {}", p.name),
+                        Some(HashMap::from([("providerId".into(), p.id.clone())])),
+                    );
+                    ApiResult::ok(p)
+                }
+                Err(e) => ApiResult::err(e.to_string()),
+            }
+        }
+        Ok(None) => ApiResult::err(format!("provider not found: {id}")),
         Err(e) => ApiResult::err(e.to_string()),
     }
 }
