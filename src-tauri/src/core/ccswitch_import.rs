@@ -215,8 +215,10 @@ pub struct CcPromptCandidate {
 
 #[derive(Debug, Deserialize)]
 struct McpServerConfig {
-    #[serde(default)]
-    r#type: Option<String>,
+    // CC Switch stores {"type":"stdio"|...}; accept but ignore.
+    #[serde(default, rename = "type")]
+    #[allow(dead_code)]
+    transport_type: Option<String>,
     #[serde(default)]
     command: Option<String>,
     #[serde(default)]
