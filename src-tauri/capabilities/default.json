@@ -4,19 +4,6 @@
   "description": "Default capabilities for Grok Switch",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "shell:allow-open",
-    "dialog:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "cmd",
-          "cmd": "cmd",
-          "args": true,
-          "sidecar": false
-        }
-      ]
-    }
+    "core:default"
   ]
 }

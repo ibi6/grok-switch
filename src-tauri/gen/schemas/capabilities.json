@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Default capabilities for Grok Switch","local":true,"windows":["main"],"permissions":["core:default","shell:allow-open","dialog:default"]}}
+{"default":{"identifier":"default","description":"Default capabilities for Grok Switch","local":true,"windows":["main"],"permissions":["core:default"]}}

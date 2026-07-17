@@ -4,7 +4,7 @@ mod tray;
 
 use core::paths::Paths;
 use std::fs;
-use std::net::TcpListener;
+use std::fs::OpenOptions;
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
@@ -15,24 +15,108 @@ pub struct AppState {
     pub paths: Paths,
 }
 
-/// Best-effort single-instance guard (no extra crate; works offline).
-/// Holds a localhost port for the process lifetime. If bind fails, another
-/// instance is likely already running.
+/// Holds an exclusive lock file for the process lifetime so a second instance
+/// cannot start. A file lock (not a TCP port) avoids false positives when some
+/// unrelated process already occupies a fixed port.
 #[allow(dead_code)]
-struct InstanceGuard(TcpListener);
+struct InstanceGuard(fs::File);
 
 static INSTANCE: Mutex<Option<InstanceGuard>> = Mutex::new(None);
 
-fn try_acquire_single_instance() -> bool {
-    match TcpListener::bind(("127.0.0.1", 47821)) {
-        Ok(listener) => {
-            if let Ok(mut slot) = INSTANCE.lock() {
-                *slot = Some(InstanceGuard(listener));
-            }
-            true
-        }
-        Err(_) => false,
+fn lock_path(paths: &Paths) -> std::path::PathBuf {
+    paths.app_home.join("instance.lock")
+}
+
+fn try_acquire_single_instance(paths: &Paths) -> bool {
+    let path = lock_path(paths);
+    let file = match OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .truncate(false)
+        .open(&path)
+    {
+        Ok(f) => f,
+        Err(_) => return false,
+    };
+
+    if !try_lock_exclusive(&file) {
+        return false;
     }
+
+    if let Ok(mut slot) = INSTANCE.lock() {
+        *slot = Some(InstanceGuard(file));
+    }
+    // Human-readable pid for diagnostics (separate from the lock fd).
+    let _ = fs::write(
+        paths.app_home.join("instance.pid"),
+        format!("{}", std::process::id()),
+    );
+    true
+}
+
+#[cfg(windows)]
+fn try_lock_exclusive(file: &fs::File) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    // LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY
+    const LOCKFILE_EXCLUSIVE_LOCK: u32 = 0x2;
+    const LOCKFILE_FAIL_IMMEDIATELY: u32 = 0x1;
+
+    #[repr(C)]
+    struct Overlapped {
+        internal: usize,
+        internal_high: usize,
+        offset: u32,
+        offset_high: u32,
+        h_event: *mut std::ffi::c_void,
+    }
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn LockFileEx(
+            h_file: *mut std::ffi::c_void,
+            dw_flags: u32,
+            dw_reserved: u32,
+            n_number_of_bytes_to_lock_low: u32,
+            n_number_of_bytes_to_lock_high: u32,
+            lp_overlapped: *mut Overlapped,
+        ) -> i32;
+    }
+
+    let mut ov = Overlapped {
+        internal: 0,
+        internal_high: 0,
+        offset: 0,
+        offset_high: 0,
+        h_event: std::ptr::null_mut(),
+    };
+    let ok = unsafe {
+        LockFileEx(
+            file.as_raw_handle() as *mut _,
+            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+            0,
+            1,
+            0,
+            &mut ov,
+        )
+    };
+    ok != 0
+}
+
+#[cfg(unix)]
+fn try_lock_exclusive(file: &fs::File) -> bool {
+    use std::os::unix::io::AsRawFd;
+    const LOCK_EX: i32 = 2;
+    const LOCK_NB: i32 = 4;
+    extern "C" {
+        fn flock(fd: i32, operation: i32) -> i32;
+    }
+    unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) == 0 }
+}
+
+#[cfg(not(any(windows, unix)))]
+fn try_lock_exclusive(_file: &fs::File) -> bool {
+    true
 }
 
 fn focus_signal_path(paths: &Paths) -> std::path::PathBuf {
@@ -75,16 +159,12 @@ fn spawn_focus_watcher(app: AppHandle, paths: Paths) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Resolve paths early so a second instance can still ping the first.
     let paths = Paths::resolve().unwrap_or_else(|_| {
-        // Fallback: still try home via empty root failure path — use temp-ish
-        Paths::from_root(
-            dirs::home_dir().unwrap_or_else(|| std::env::temp_dir()),
-        )
+        Paths::from_root(dirs::home_dir().unwrap_or_else(std::env::temp_dir))
     });
     let _ = paths.ensure_app_dirs();
 
-    if !try_acquire_single_instance() {
+    if !try_acquire_single_instance(&paths) {
         request_focus(&paths);
         eprintln!(
             "Grok Switch is already running — requested focus on the existing window."
@@ -93,8 +173,6 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-        .plugin(tauri_plugin_shell::init())
-        .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             paths: paths.clone(),
         })
@@ -124,6 +202,7 @@ pub fn run() {
             commands::list_activity,
             commands::list_backups,
             commands::restore_backup,
+            commands::open_grok_terminal,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grok Switch");

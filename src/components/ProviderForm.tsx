@@ -172,14 +172,28 @@ export function ProviderForm({
 
   if (!open) return null;
 
-  const buildProvider = (): Provider => {
+  const isSafeModel = (s: string) =>
+    /^[A-Za-z0-9._/:+-]{1,128}$/.test(s.trim());
+
+  const buildProvider = (): Provider | null => {
     const now = Math.floor(Date.now() / 1000);
     const name = values.name.trim();
     const defaultModel = values.defaultModel.trim();
-    const display = (values.defaultDisplayName.trim() || defaultModel);
+    if (!isSafeModel(defaultModel)) {
+      notify(
+        "实际请求模型含非法字符（仅允许字母数字与 - _ . / : +）",
+        "error",
+      );
+      return null;
+    }
+    const display = values.defaultDisplayName.trim() || defaultModel;
     const modelId =
       initial?.defaultModelEntryId ||
       `${slugify(name)}-${slugify(defaultModel)}`;
+    if (!isSafeModel(modelId)) {
+      notify("模型 id 无效，请调整供应商名称或模型名", "error");
+      return null;
+    }
     const defaultCtx = values.defaultLargeContext ? 1_000_000 : 200_000;
 
     const models: ModelEntry[] = [
@@ -194,6 +208,10 @@ export function ProviderForm({
     for (const row of values.extras) {
       const m = row.model.trim();
       if (!m) continue;
+      if (!isSafeModel(m)) {
+        notify(`备用模型「${m}」含非法字符`, "error");
+        return null;
+      }
       const id = `${slugify(name)}-${slugify(m)}`;
       if (models.some((x) => x.id === id || x.model === m)) continue;
       models.push({
@@ -271,6 +289,7 @@ export function ProviderForm({
     else setSaving(true);
     try {
       const provider = buildProvider();
+      if (!provider) return;
       const res = await api.upsertProvider(provider);
       if (!res.ok || !res.data) {
         notify(res.error ?? "保存失败", "error");

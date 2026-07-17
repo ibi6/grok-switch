@@ -185,21 +185,19 @@ export default function App() {
   };
 
   const openGrokTerminal = async () => {
-    const cmd = currentModelId ? `grok -m ${currentModelId}` : "grok";
-    try {
-      const { Command } = await import("@tauri-apps/plugin-shell");
-      // Open PowerShell with the right model pre-filled (wt if installed).
-      await Command.create("cmd", [
-        "/C",
-        `start "" wt -d %USERPROFILE% powershell -NoExit -Command "${cmd}" || start "" powershell -NoExit -Command "${cmd}"`,
-      ]).execute();
-      notify(`已打开终端：${cmd}`);
-    } catch (e) {
-      notify(
-        `请手动运行：${cmd}${e instanceof Error ? `（${e.message}）` : ""}`,
-        "error",
-      );
+    // Model is whitelist-validated in Rust; no frontend shell execution.
+    const res = await api.openGrokTerminal(currentModelId);
+    if (res.ok && res.data) {
+      notify(`已打开终端：${res.data}`);
+      return;
     }
+    const fallback = currentModelId
+      ? `grok -m ${currentModelId}`
+      : "grok";
+    notify(
+      `请手动运行：${fallback}${res.error ? `（${res.error}）` : ""}`,
+      "error",
+    );
   };
 
   return (

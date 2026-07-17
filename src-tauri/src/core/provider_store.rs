@@ -47,6 +47,7 @@ pub fn get_provider(paths: &Paths, id: &str) -> Result<Option<Provider>, AppErro
 }
 
 pub fn upsert_provider(paths: &Paths, provider: Provider) -> Result<(), AppError> {
+    let _guard = crate::core::lock_store();
     let mut file = read_file(paths)?;
     if let Some(existing) = file.items.iter_mut().find(|p| p.id == provider.id) {
         *existing = provider;
@@ -57,6 +58,7 @@ pub fn upsert_provider(paths: &Paths, provider: Provider) -> Result<(), AppError
 }
 
 pub fn delete_provider(paths: &Paths, id: &str) -> Result<bool, AppError> {
+    let _guard = crate::core::lock_store();
     let mut file = read_file(paths)?;
     let before = file.items.len();
     file.items.retain(|p| p.id != id);

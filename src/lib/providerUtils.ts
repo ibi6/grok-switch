@@ -1,5 +1,12 @@
 import type { Provider } from "./types";
 
+/** Same whitelist as Rust `is_safe_model_token` — used before shell/IPC. */
+export function isSafeModelToken(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > 128) return false;
+  return /^[A-Za-z0-9._/:+-]+$/.test(t);
+}
+
 /** Managed Grok CLI model section id: gs-<entryId> */
 export function modelFlag(p: Provider): string {
   const entry =

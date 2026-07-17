@@ -1,18 +1,13 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApiBackend {
+    #[default]
     ChatCompletions,
     Responses,
     Messages,
-}
-
-impl Default for ApiBackend {
-    fn default() -> Self {
-        Self::ChatCompletions
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

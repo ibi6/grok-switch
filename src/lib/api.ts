@@ -438,6 +438,18 @@ async function mockInvoke<T>(
       return { ok: true } as ApiResult<T>;
     }
 
+    case "open_grok_terminal": {
+      const model = args?.model != null ? String(args.model) : "";
+      const token = model.trim();
+      if (token && !/^[A-Za-z0-9._/:+-]{1,128}$/.test(token)) {
+        return err(
+          "model contains invalid characters (allowed: A-Z a-z 0-9 - _ . / : +)",
+        ) as ApiResult<T>;
+      }
+      const cmd = token ? `grok -m ${token}` : "grok";
+      return ok(cmd) as ApiResult<T>;
+    }
+
     default:
       return err(`unknown mock command: ${cmd}`) as ApiResult<T>;
   }
@@ -529,6 +541,13 @@ export function listBackups() {
 
 export function restoreBackup(id: string) {
   return call<null>("restore_backup", { id });
+}
+
+/** Open a system terminal running `grok` (optionally with `-m <model>`). */
+export function openGrokTerminal(model?: string | null) {
+  return call<string>("open_grok_terminal", {
+    model: model && model.trim() ? model.trim() : null,
+  });
 }
 
 /** True when running inside a Tauri webview. */

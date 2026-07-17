@@ -57,9 +57,20 @@ export function SettingsPage({
   };
 
   const save = async () => {
+    const model = draft.officialDefaultModel.trim();
+    if (!model || !/^[A-Za-z0-9._/:+-]{1,128}$/.test(model)) {
+      notify(
+        "官方默认模型含非法字符（仅允许字母数字与 - _ . / : +）",
+        "error",
+      );
+      return;
+    }
     setSaving(true);
     try {
-      const res = await api.updateSettings(draft);
+      const res = await api.updateSettings({
+        ...draft,
+        officialDefaultModel: model,
+      });
       if (!res.ok) {
         notify(res.error ?? "保存失败", "error");
         return;

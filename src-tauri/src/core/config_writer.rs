@@ -28,6 +28,18 @@ pub fn validate_provider(provider: &Provider) -> Result<(), AppError> {
             provider.default_model_entry_id
         )));
     }
+    // Model entry ids become TOML section keys and CLI `-m` flags; reject
+    // anything that could break shell quoting or TOML keys.
+    for entry in &provider.models {
+        crate::core::validate_model_token(&entry.id, "model entry id")?;
+        if !entry.model.trim().is_empty() {
+            crate::core::validate_model_token(&entry.model, "model id")?;
+        }
+    }
+    crate::core::validate_model_token(
+        &provider.default_model_entry_id,
+        "default_model_entry_id",
+    )?;
     Ok(())
 }
 
@@ -61,10 +73,8 @@ pub fn apply_provider_with_catalog(
     let mut ordered: Vec<&Provider> = Vec::new();
     if let Some(all) = catalog {
         for p in all {
-            if p.id != provider.id {
-                if validate_provider(p).is_ok() {
-                    ordered.push(p);
-                }
+            if p.id != provider.id && validate_provider(p).is_ok() {
+                ordered.push(p);
             }
         }
     }
@@ -90,6 +100,7 @@ pub fn apply_provider_with_catalog(
 /// Clears `[endpoints].models_base_url` so official xAI models are not forced
 /// through the last relay endpoint.
 pub fn apply_official_default(config_text: &str, model: &str) -> Result<String, AppError> {
+    let model = crate::core::validate_model_token(model, "official default model")?;
     let mut doc = parse_doc(config_text)?;
     ensure_table(&mut doc, "models");
     doc["models"]["default"] = value(model);

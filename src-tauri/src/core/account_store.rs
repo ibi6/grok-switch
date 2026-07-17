@@ -49,6 +49,7 @@ pub fn get_account(paths: &Paths, id: &str) -> Result<Option<Account>, AppError>
 
 /// Save account meta into `accounts/<id>/meta.json` and update `accounts/index.json`.
 pub fn save_account_meta(paths: &Paths, account: Account) -> Result<(), AppError> {
+    let _guard = crate::core::lock_store();
     paths.ensure_app_dirs()?;
     let dir = paths.account_dir(&account.id);
     fs::create_dir_all(&dir)?;
@@ -67,6 +68,7 @@ pub fn save_account_meta(paths: &Paths, account: Account) -> Result<(), AppError
 
 /// Remove `accounts/<id>/` directory and drop the entry from the index.
 pub fn delete_account_dir(paths: &Paths, id: &str) -> Result<bool, AppError> {
+    let _guard = crate::core::lock_store();
     let mut index = read_index(paths)?;
     let before = index.items.len();
     index.items.retain(|a| a.id != id);

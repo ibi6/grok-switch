@@ -1,5 +1,6 @@
 use crate::core::AppError;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 /// Resolved filesystem layout for Grok Switch + Grok CLI.
@@ -91,6 +92,15 @@ impl Paths {
 }
 
 /// Atomically write bytes via temp file + rename (same directory).
+///
+/// `std::fs::rename` atomically replaces an existing destination on both
+/// Windows and Unix, so we rename straight over the target. We deliberately do
+/// NOT `remove_file` the destination first: that would open a window where the
+/// file is missing, and a crash/power-loss in that window would lose the
+/// original (auth.json / config.toml / providers.json) with only a `.tmp` left.
+///
+/// The temp name is unique per write so two writers targeting the same file
+/// cannot clobber each other's staging file.
 pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), AppError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -99,13 +109,26 @@ pub fn atomic_write(path: &Path, bytes: impl AsRef<[u8]>) -> Result<(), AppError
         .file_name()
         .and_then(|s| s.to_str())
         .unwrap_or("file");
-    let tmp_path = path.with_file_name(format!(".{file_name}.tmp"));
-    fs::write(&tmp_path, bytes.as_ref())?;
-    // On Windows, rename fails if destination exists.
-    if path.exists() {
-        fs::remove_file(path)?;
+    let tmp_path =
+        path.with_file_name(format!(".{file_name}.{}.tmp", uuid::Uuid::new_v4().simple()));
+
+    // Write + flush + fsync so the bytes are durable before we swap them in.
+    let write_result = (|| -> std::io::Result<()> {
+        let mut file = fs::File::create(&tmp_path)?;
+        file.write_all(bytes.as_ref())?;
+        file.flush()?;
+        file.sync_all()
+    })();
+    if let Err(e) = write_result {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
     }
-    fs::rename(&tmp_path, path)?;
+
+    // Atomic replace. On failure, clean up the temp so it does not accumulate.
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -140,6 +163,28 @@ mod tests {
             p.ccswitch_db,
             root.join(".cc-switch").join("cc-switch.db")
         );
+    }
+
+    #[test]
+    fn atomic_write_creates_and_overwrites() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("nested").join("data.json");
+
+        // Creates parent dirs + file.
+        atomic_write(&target, b"first").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "first");
+
+        // Overwrites an existing destination (must not fail on Windows).
+        atomic_write(&target, b"second").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "second");
+
+        // No stray temp files left behind.
+        let leftovers: Vec<_> = fs::read_dir(target.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp files leaked: {leftovers:?}");
     }
 
     #[test]

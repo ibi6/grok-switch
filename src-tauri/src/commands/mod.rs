@@ -11,9 +11,11 @@ use crate::core::health::{self, HealthResult};
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
+use crate::core::terminal;
 use crate::core::types::{
     Account, AccountStatus, Activity, ActivityType, ApiBackend, AppMode, Provider, Settings,
 };
+use crate::core::validate_model_token;
 use crate::core::AppError;
 use crate::AppState;
 use chrono::Local;
@@ -214,25 +216,29 @@ pub fn enable_provider_flow(
         ])),
     );
 
-    // Optional post-check: soft fail (still ok).
-    let post_health = if settings.auto_health_check {
-        let result = health::check_provider(
-            &provider.base_url,
-            &provider.api_key,
-            provider.api_backend,
-            &model,
-        );
-        if !result.ok {
-            log_activity(
-                paths,
-                ActivityType::Health,
-                &format!("Post-switch health soft-fail: {}", result.detail),
-                Some(HashMap::from([("providerId".into(), id.to_string())])),
+    // Post-check reuses the pre-switch probe when we have one: it targets the
+    // same endpoint with the same inputs, so re-probing would only burn a second
+    // (possibly metered) request. Only probe here when pre was skipped (forced).
+    let post_health = match &pre_health {
+        Some(pre) => Some(pre.clone()),
+        None if settings.auto_health_check => {
+            let result = health::check_provider(
+                &provider.base_url,
+                &provider.api_key,
+                provider.api_backend,
+                &model,
             );
+            if !result.ok {
+                log_activity(
+                    paths,
+                    ActivityType::Health,
+                    &format!("Post-switch health soft-fail: {}", result.detail),
+                    Some(HashMap::from([("providerId".into(), id.to_string())])),
+                );
+            }
+            Some(result)
         }
-        Some(result)
-    } else {
-        None
+        None => None,
     };
 
     Ok(EnableProviderResult {
@@ -351,28 +357,16 @@ fn log_activity(
 }
 
 fn list_backup_infos(paths: &Paths) -> Result<Vec<BackupInfo>, AppError> {
-    // Backups are stored under the effective Grok-home ops layout when settings
-    // override grok_home; list both default and ops to avoid "vanishing" backups.
-    let ops = ops_paths(paths);
-    let mut ids = backup::list_backup_ids(&ops)?;
-    if ops.backups_dir != paths.backups_dir {
-        // App backups dir (legacy / default layout)
-        for id in backup::list_backup_ids(paths)? {
-            if !ids.iter().any(|x| x == &id) {
-                ids.push(id);
-            }
-        }
-    }
+    // Backups always live under app_home; a grok_home override moves config/auth
+    // but not the backups dir, so a single listing is authoritative.
+    let mut ids = backup::list_backup_ids(paths)?;
     ids.sort();
     ids.reverse(); // newest first
     let mut out = Vec::with_capacity(ids.len());
     for id in ids {
-        let meta = backup::read_backup_meta(&ops, &id)
-            .ok()
-            .flatten()
-            .or_else(|| backup::read_backup_meta(paths, &id).ok().flatten());
+        let meta = backup::read_backup_meta(paths, &id).ok().flatten();
         out.push(BackupInfo {
-            id: id.clone(),
+            id,
             reason: meta.as_ref().map(|m| m.reason.clone()),
             created_at: meta.as_ref().map(|m| m.created_at),
             meta,
@@ -493,6 +487,10 @@ pub fn get_settings(state: State<'_, AppState>) -> ApiResult<Settings> {
 
 #[tauri::command]
 pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> ApiResult<Settings> {
+    // official_default_model ends up on a shell command line via open_grok_terminal.
+    if let Err(e) = validate_model_token(&settings.official_default_model, "officialDefaultModel") {
+        return ApiResult::err(e.to_string());
+    }
     match settings_store::save_settings(&state.paths, &settings) {
         Ok(()) => ApiResult::ok(settings),
         Err(e) => ApiResult::err(e.to_string()),
@@ -651,6 +649,19 @@ pub fn list_backups(state: State<'_, AppState>) -> ApiResult<Vec<BackupInfo>> {
 #[tauri::command]
 pub fn restore_backup(state: State<'_, AppState>, id: String) -> ApiResult<()> {
     ApiResult::from_result(restore_backup_flow(&state.paths, &id))
+}
+
+/// Open a system terminal running `grok` (optionally with `-m <model>`).
+/// Model is whitelist-validated in Rust; no shell plugin is used.
+#[tauri::command]
+pub fn open_grok_terminal(
+    state: State<'_, AppState>,
+    model: Option<String>,
+) -> ApiResult<String> {
+    ApiResult::from_result(terminal::open_grok_terminal(
+        &state.paths,
+        model.as_deref(),
+    ))
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

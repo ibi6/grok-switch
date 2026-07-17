@@ -37,6 +37,7 @@ pub fn load_settings(paths: &Paths) -> Result<Settings, AppError> {
 
 /// Persist settings with atomic write.
 pub fn save_settings(paths: &Paths, settings: &Settings) -> Result<(), AppError> {
+    let _guard = crate::core::lock_store();
     paths.ensure_app_dirs()?;
     let json = serde_json::to_string_pretty(settings)?;
     atomic_write(&paths.settings_json, json)?;

@@ -15,11 +15,16 @@ Treat these paths like password files. Do not share them or commit them to git.
 - Mask secrets in UI and activity logs
 - Avoid writing secrets into git-tracked files
 - Prefer filesystem-local operations (no cloud sync)
+- Atomic file writes (temp + rename, no delete-before-replace)
+- Strict Content-Security-Policy in the Tauri webview
+- No shell-plugin surface: terminal launch is a Rust command with model-id whitelist
+- Model tokens (CLI `-m` flags, official default model) are validated against `[A-Za-z0-9._/:+-]`
 
 ## What we don't claim
 
 - OS keychain / DPAPI encryption is not implemented in the current MVP
 - Network health probes send minimal traffic to the configured relay only
+- Single-instance lock is best-effort (exclusive file lock under `~/.grok-switch`)
 
 ## Reporting a vulnerability
 
