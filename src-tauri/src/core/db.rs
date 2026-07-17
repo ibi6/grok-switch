@@ -65,6 +65,26 @@ fn ensure_schema(conn: &Connection) -> Result<(), AppError> {
             detail TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_request_logs_ts ON request_logs(ts DESC);
+
+        -- Round-robin / pool runtime state (docs: account pool)
+        CREATE TABLE IF NOT EXISTS pool_state (
+            key TEXT PRIMARY KEY,
+            value INTEGER NOT NULL DEFAULT 0
+        );
+
+        -- Optional prompt snippets (docs: prompts table)
+        CREATE TABLE IF NOT EXISTS prompts (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        -- KV mirror for settings snapshots / feature flags
+        CREATE TABLE IF NOT EXISTS app_meta (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        );
         "#,
     )
     .map_err(|e| AppError::Message(format!("schema: {e}")))?;
@@ -72,6 +92,85 @@ fn ensure_schema(conn: &Connection) -> Result<(), AppError> {
         *flag = true;
     }
     Ok(())
+}
+
+/// Atomically read+increment a pool counter (for round-robin).
+pub fn next_pool_counter(paths: &Paths, key: &str) -> Result<u64, AppError> {
+    let conn = open(paths)?;
+    conn.execute(
+        "INSERT INTO pool_state(key, value) VALUES(?1, 0) ON CONFLICT(key) DO NOTHING",
+        params![key],
+    )
+    .map_err(|e| AppError::Message(format!("pool init: {e}")))?;
+    conn.execute(
+        "UPDATE pool_state SET value = value + 1 WHERE key = ?1",
+        params![key],
+    )
+    .map_err(|e| AppError::Message(format!("pool bump: {e}")))?;
+    let v: i64 = conn
+        .query_row(
+            "SELECT value FROM pool_state WHERE key = ?1",
+            params![key],
+            |row| row.get(0),
+        )
+        .map_err(|e| AppError::Message(format!("pool read: {e}")))?;
+    Ok(v as u64)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PromptRow {
+    pub id: String,
+    pub name: String,
+    pub body: String,
+    pub updated_at: i64,
+}
+
+pub fn list_prompts(paths: &Paths) -> Result<Vec<PromptRow>, AppError> {
+    let conn = open(paths)?;
+    let mut stmt = conn
+        .prepare("SELECT id, name, body, updated_at FROM prompts ORDER BY updated_at DESC")
+        .map_err(|e| AppError::Message(format!("prompts prepare: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(PromptRow {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                body: row.get(2)?,
+                updated_at: row.get(3)?,
+            })
+        })
+        .map_err(|e| AppError::Message(format!("prompts query: {e}")))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| AppError::Message(format!("prompt row: {e}")))?);
+    }
+    Ok(out)
+}
+
+pub fn upsert_prompt(paths: &Paths, id: &str, name: &str, body: &str) -> Result<PromptRow, AppError> {
+    let conn = open(paths)?;
+    let ts = Local::now().timestamp();
+    conn.execute(
+        r#"INSERT INTO prompts(id, name, body, updated_at) VALUES(?1,?2,?3,?4)
+           ON CONFLICT(id) DO UPDATE SET name=excluded.name, body=excluded.body, updated_at=excluded.updated_at"#,
+        params![id, name, body, ts],
+    )
+    .map_err(|e| AppError::Message(format!("prompt upsert: {e}")))?;
+    Ok(PromptRow {
+        id: id.to_string(),
+        name: name.to_string(),
+        body: body.to_string(),
+        updated_at: ts,
+    })
+}
+
+pub fn delete_prompt(paths: &Paths, id: &str) -> Result<bool, AppError> {
+    let conn = open(paths)?;
+    let n = conn
+        .execute("DELETE FROM prompts WHERE id = ?1", params![id])
+        .map_err(|e| AppError::Message(format!("prompt delete: {e}")))?;
+    Ok(n > 0)
 }
 
 #[allow(clippy::too_many_arguments)]

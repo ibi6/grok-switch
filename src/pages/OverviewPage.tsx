@@ -1,14 +1,25 @@
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Check,
   Copy,
+  Network,
   RefreshCw,
   Server,
   Terminal,
   UserRound,
 } from "lucide-react";
-import type { Account, Activity, CliStatus, Provider, Settings } from "../lib/types";
+import type {
+  Account,
+  Activity,
+  CliStatus,
+  Provider,
+  ProxyStatus,
+  Settings,
+  TokenStats,
+} from "../lib/types";
 import type { PageId } from "../components/Sidebar";
+import * as api from "../lib/api";
 
 function formatTs(ts: number): string {
   return new Date(ts * 1000).toLocaleString(undefined, {
@@ -51,8 +62,23 @@ export function OverviewPage({
   onNavigate: (p: PageId) => void;
   onRefreshCli: () => void;
 }) {
+  const [proxy, setProxy] = useState<ProxyStatus | null>(null);
+  const [stats, setStats] = useState<TokenStats | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      const [p, s] = await Promise.all([
+        api.getProxyStatus(),
+        api.getTokenStats(),
+      ]);
+      if (p.ok && p.data) setProxy(p.data);
+      if (s.ok && s.data) setStats(s.data);
+    })();
+  }, [activity.length, providers.length]);
+
   const mode = settings?.currentMode ?? "none";
   const provider = providers.find((p) => p.id === settings?.currentProviderId);
+  const poolCount = providers.filter((p) => p.poolEnabled !== false).length;
   const account = accounts.find((a) => a.id === settings?.currentAccountId);
 
   let modeTitle = "未启用";
@@ -100,6 +126,24 @@ export function OverviewPage({
             {cli?.authPresent ? "有 auth" : "无 auth"}
           </span>
         </div>
+        <div className="stat-card">
+          <small>本地代理</small>
+          <b>{proxy?.running ? "运行中" : "未启动"}</b>
+          <span>
+            {proxy?.running
+              ? proxy.listen
+              : `池内 ${poolCount}/${providers.length} · 端口 ${settings?.proxyPort ?? 18765}`}
+          </span>
+        </div>
+        <div className="stat-card">
+          <small>Token 统计</small>
+          <b>{stats ? stats.requests : "—"}</b>
+          <span>
+            {stats
+              ? `in ${stats.promptTokens} / out ${stats.completionTokens} · 成功 ${stats.okCount}`
+              : "启动代理后累计"}
+          </span>
+        </div>
       </div>
 
       <div className="provider-list" style={{ marginBottom: 16 }}>
@@ -115,9 +159,38 @@ export function OverviewPage({
             <div className="provider-title-row">
               <b>供应商管理</b>
               <span className="badge badge-muted">{providers.length} 个</span>
+              <span className="badge badge-backend">池 {poolCount}</span>
             </div>
             <div className="provider-meta">
-              <span>添加 / 启用中转站，写入 config.toml</span>
+              <span>添加 / 启用中转站，写入 config.toml · 池策略 {settings?.poolStrategy ?? "priority"}</span>
+            </div>
+          </div>
+          <div className="provider-actions">
+            <ArrowRight size={16} color="#6b7a8c" />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          className="provider-card"
+          onClick={() => onNavigate("settings")}
+        >
+          <div className="provider-avatar" style={{ background: "#06b6d4" }}>
+            <Network size={18} />
+          </div>
+          <div className="provider-body">
+            <div className="provider-title-row">
+              <b>本地代理 / Failover</b>
+              <span className={`badge ${proxy?.running ? "badge-current" : "badge-muted"}`}>
+                {proxy?.running ? "ON" : "OFF"}
+              </span>
+            </div>
+            <div className="provider-meta">
+              <span>
+                {proxy?.running
+                  ? `监听 ${proxy.listen} · 401/403/429/5xx 自动切换`
+                  : "在设置中启动，自动改写 models_base_url"}
+              </span>
             </div>
           </div>
           <div className="provider-actions">

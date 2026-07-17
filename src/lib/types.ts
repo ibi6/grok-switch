@@ -126,6 +126,13 @@ export interface ProxyStatus {
   listen: string;
 }
 
+export interface PromptRow {
+  id: string;
+  name: string;
+  body: string;
+  updatedAt: number;
+}
+
 export interface Activity {
   ts: number;
   /** Serialized as `type` from Rust activity_type */

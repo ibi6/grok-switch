@@ -206,6 +206,11 @@ export function AccountsPage({
                   <div className="provider-meta">
                     <span>{a.email ?? "官方会话"}</span>
                     <span>最近使用 {formatTs(a.lastUsedAt)}</span>
+                    <span title="池优先级">P{a.priority ?? 0}</span>
+                    <span title="池权重">w{a.weight ?? 100}</span>
+                    {a.poolEnabled === false && (
+                      <span className="badge badge-muted">池外</span>
+                    )}
                   </div>
                 </div>
                 <div className="provider-actions">
@@ -224,6 +229,37 @@ export function AccountsPage({
                       启用
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    disabled={!!busy}
+                    title="切换是否参与账号池"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(`pool-${a.id}`);
+                        try {
+                          const res = await api.upsertAccount({
+                            ...a,
+                            poolEnabled: a.poolEnabled === false,
+                          });
+                          if (!res.ok || !res.data) {
+                            notify(res.error ?? "更新失败", "error");
+                            return;
+                          }
+                          notify(
+                            res.data.poolEnabled === false
+                              ? `${a.name} 已移出账号池`
+                              : `${a.name} 已加入账号池`,
+                          );
+                          await onRefresh();
+                        } finally {
+                          setBusy(null);
+                        }
+                      })();
+                    }}
+                  >
+                    {a.poolEnabled === false ? "入池" : "出池"}
+                  </button>
                   <button
                     type="button"
                     className="icon-btn"

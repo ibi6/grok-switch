@@ -466,19 +466,22 @@ textarea:focus-visible {
 
 .card-menu-wrap {
   position: relative;
+  z-index: 40;
 }
 
 .card-menu {
   position: absolute;
   right: 0;
-  top: calc(100% + 6px);
-  min-width: 132px;
+  /* Open upward so the last card isn't clipped by page bottom / overflow */
+  bottom: calc(100% + 6px);
+  top: auto;
+  min-width: 148px;
   background: var(--surface);
   border: 1px solid var(--border-strong);
   border-radius: 12px;
   box-shadow: var(--shadow);
   padding: 6px;
-  z-index: 30;
+  z-index: 50;
   display: grid;
   gap: 2px;
 }
@@ -721,7 +724,12 @@ textarea:focus-visible {
   width: 100%;
   box-shadow: var(--shadow-sm);
   position: relative;
-  overflow: hidden;
+  /* Allow dropdown menus to escape; glow is clipped via ::after clip-path */
+  overflow: visible;
+}
+
+.provider-card.is-menu-open {
+  z-index: 20;
 }
 
 .provider-card::after {
@@ -733,6 +741,10 @@ textarea:focus-visible {
   background: radial-gradient(circle, var(--card-glow), transparent 70%);
   pointer-events: none;
   transform: translate(-30%, -40%);
+  /* Keep the soft glow inside the rounded card even with overflow:visible */
+  border-radius: inherit;
+  overflow: hidden;
+  clip-path: inset(0 round 18px);
 }
 
 .backup-card .provider-avatar {

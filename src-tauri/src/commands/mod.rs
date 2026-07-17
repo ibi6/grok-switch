@@ -11,7 +11,7 @@ use crate::core::health::{self, HealthResult};
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
-use crate::core::db::{self, RequestLog, TokenStats};
+use crate::core::db::{self, PromptRow, RequestLog, TokenStats};
 use crate::core::mcp_store::{self, McpDraft, McpHealthResult, McpServer};
 use crate::core::proxy::{self, ProxyStatus};
 use crate::core::skill_store::{self, SkillDetail, SkillDraft, SkillInfo, SkillScope};
@@ -589,6 +589,32 @@ pub fn list_accounts(state: State<'_, AppState>) -> ApiResult<Vec<Account>> {
     ApiResult::from_result(account_store::list_accounts(&state.paths))
 }
 
+/// Update account metadata (name/pool fields). Does not rewrite auth blob.
+#[tauri::command]
+pub fn upsert_account(state: State<'_, AppState>, account: Account) -> ApiResult<Account> {
+    if account.name.trim().is_empty() {
+        return ApiResult::err("account name must not be empty");
+    }
+    match account_store::get_account(&state.paths, &account.id) {
+        Ok(Some(existing)) => {
+            // Preserve auth presence; only meta is updated.
+            let mut next = account;
+            if next.created_at == 0 {
+                next.created_at = existing.created_at;
+            }
+            if next.status == AccountStatus::Unknown {
+                next.status = existing.status;
+            }
+            match account_store::save_account_meta(&state.paths, next.clone()) {
+                Ok(()) => ApiResult::ok(next),
+                Err(e) => ApiResult::err(e.to_string()),
+            }
+        }
+        Ok(None) => ApiResult::err(format!("account not found: {}", account.id)),
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 pub fn delete_account(state: State<'_, AppState>, id: String) -> ApiResult<bool> {
     match account_store::delete_account_dir(&state.paths, &id) {
@@ -895,6 +921,80 @@ pub fn stop_proxy(state: State<'_, AppState>) -> ApiResult<ProxyStatus> {
         None,
     );
     ApiResult::ok(st)
+}
+
+/// Clear cooldown so a provider re-enters the failover pool immediately.
+#[tauri::command]
+pub fn clear_provider_cooldown(
+    state: State<'_, AppState>,
+    id: String,
+) -> ApiResult<Provider> {
+    match provider_store::get_provider(&state.paths, &id) {
+        Ok(Some(p)) => {
+            let cleared = crate::core::pool::clear_cooldown(&p);
+            if let Err(e) = provider_store::upsert_provider(&state.paths, cleared.clone()) {
+                return ApiResult::err(e.to_string());
+            }
+            log_activity(
+                &state.paths,
+                ActivityType::Failover,
+                &format!("Cleared cooldown for {}", cleared.name),
+                Some(HashMap::from([("providerId".into(), id)])),
+            );
+            ApiResult::ok(cleared)
+        }
+        Ok(None) => ApiResult::err(format!("provider not found: {id}")),
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn list_prompts(state: State<'_, AppState>) -> ApiResult<Vec<PromptRow>> {
+    ApiResult::from_result(db::list_prompts(&state.paths))
+}
+
+#[tauri::command]
+pub fn upsert_prompt(
+    state: State<'_, AppState>,
+    id: String,
+    name: String,
+    body: String,
+) -> ApiResult<PromptRow> {
+    let id = if id.trim().is_empty() {
+        uuid::Uuid::new_v4().to_string()
+    } else {
+        id.trim().to_string()
+    };
+    match db::upsert_prompt(&state.paths, &id, name.trim(), &body) {
+        Ok(row) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Skill,
+                &format!("Saved prompt {}", row.name),
+                Some(HashMap::from([("promptId".into(), row.id.clone())])),
+            );
+            ApiResult::ok(row)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn delete_prompt(state: State<'_, AppState>, id: String) -> ApiResult<bool> {
+    match db::delete_prompt(&state.paths, &id) {
+        Ok(removed) => {
+            if removed {
+                log_activity(
+                    &state.paths,
+                    ActivityType::Skill,
+                    &format!("Deleted prompt {id}"),
+                    Some(HashMap::from([("promptId".into(), id)])),
+                );
+            }
+            ApiResult::ok(removed)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

@@ -25,6 +25,8 @@ It manages relay providers and official multi-account sessions the way CC Switch
 | **MCP** | Manage `[mcp_servers.*]` in `~/.grok/config.toml` (stdio / HTTP); enable, probe, delete |
 | **Provider pool** | Priority / weight / cooldown metadata for automatic selection |
 | **Local proxy** | Optional `127.0.0.1` OpenAI-compatible proxy with failover + SQLite request/token logs |
+| **Account pool** | Priority / weight / pool membership for official accounts |
+| **Prompts store** | SQLite `prompts` table for reusable prompt snippets |
 | **Health checks** | Probe `chat_completions` / `responses` / `messages` before enable |
 | **Backups** | Auto-backup before switch; restore from UI |
 | **Desktop UX** | Tray icon, single-instance focus, light/dark/system theme |
@@ -254,7 +256,8 @@ Use third-party relays only where you are authorized to do so.
 - **Skills**：管理 `~/.grok/skills`（`SKILL.md`）；可从 `~/.cc-switch/skills` 导入；删除前备份到 `~/.grok-switch/skill-backups`
 - **MCP**：管理 `config.toml` 的 `[mcp_servers.*]`（stdio / HTTP），启停与探测
 - **供应商池**：优先级 / 权重 / 冷却；代理故障时自动切换
-- **本地代理**：`127.0.0.1` OpenAI 兼容反向代理 + SQLite 请求/Token 日志
+- **本地代理**：`127.0.0.1` OpenAI 兼容反向代理 + SQLite 请求/Token 日志；启动自动恢复
+- **账号池**：官方账号 priority / weight / 入池出池
 - **测通 / 备份 / 托盘 / 浅色深色主题**
 - **凭证不出本机**
 

@@ -5,6 +5,7 @@ import {
   MoreHorizontal,
   Pencil,
   Plus,
+  RefreshCw,
   Search,
   Trash2,
   Zap,
@@ -260,7 +261,7 @@ export function ProvidersPage({
             return (
               <div
                 key={p.id}
-                className={`provider-card is-clickable ${active ? "is-current" : ""} ${enabling ? "is-busy" : ""}`}
+                className={`provider-card is-clickable ${active ? "is-current" : ""} ${enabling ? "is-busy" : ""} ${menuId === p.id ? "is-menu-open" : ""}`}
                 role="button"
                 tabIndex={0}
                 onClick={() => {
@@ -370,6 +371,26 @@ export function ProvidersPage({
                           )}
                           测通
                         </button>
+                        {p.cooldownUntil && p.cooldownUntil * 1000 > Date.now() && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void (async () => {
+                                setMenuId(null);
+                                const res = await api.clearProviderCooldown(p.id);
+                                if (!res.ok) {
+                                  notify(res.error ?? "解除冷却失败", "error");
+                                  return;
+                                }
+                                notify(`已解除 ${p.name} 的冷却`);
+                                await onRefresh();
+                              })();
+                            }}
+                          >
+                            <RefreshCw size={14} />
+                            解除冷却
+                          </button>
+                        )}
                         <button type="button" onClick={() => openEdit(p)}>
                           <Pencil size={14} />
                           编辑

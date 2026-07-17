@@ -244,7 +244,7 @@ fn handle_request(mut request: tiny_http::Request) -> Result<(), AppError> {
         .into_iter()
         .filter(|p| !is_loopback_proxy_url(&p.base_url, port))
         .collect();
-    let candidates = pool::order_candidates(&providers, settings.pool_strategy);
+    let candidates = pool::order_candidates(&providers, settings.pool_strategy, Some(&paths));
 
     if candidates.is_empty() {
         let _ = request.respond(

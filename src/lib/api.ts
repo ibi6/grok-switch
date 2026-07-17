@@ -19,6 +19,7 @@ import type {
   McpHealthResult,
   McpServer,
   ProxyStatus,
+  PromptRow,
   RequestLog,
   TokenStats,
 } from "./types";
@@ -63,6 +64,14 @@ const mockSettings: Settings = {
 
 let mockProxy: ProxyStatus = { running: false, port: 18765, listen: "" };
 let mockRequestLogs: RequestLog[] = [];
+let mockPrompts: PromptRow[] = [
+  {
+    id: "prompt-1",
+    name: "代码审查",
+    body: "请审查以下改动，关注正确性、安全与可维护性。",
+    updatedAt: now() - 3600,
+  },
+];
 
 let mockProviders: Provider[] = [
   {
@@ -364,6 +373,15 @@ async function mockInvoke<T>(
 
     case "list_accounts":
       return ok(mockAccounts.map((a) => ({ ...a }))) as ApiResult<T>;
+
+    case "upsert_account": {
+      const account = args?.account as Account;
+      if (!account?.id) return err("account id required") as ApiResult<T>;
+      const idx = mockAccounts.findIndex((a) => a.id === account.id);
+      if (idx < 0) return err(`account not found: ${account.id}`) as ApiResult<T>;
+      mockAccounts[idx] = { ...mockAccounts[idx], ...account };
+      return ok({ ...mockAccounts[idx] }) as ApiResult<T>;
+    }
 
     case "delete_account": {
       const id = String(args?.id ?? "");
@@ -697,6 +715,40 @@ async function mockInvoke<T>(
       return ok({ ...mockProxy }) as ApiResult<T>;
     }
 
+    case "clear_provider_cooldown": {
+      const id = String(args?.id ?? "");
+      const idx = mockProviders.findIndex((p) => p.id === id);
+      if (idx < 0) return err(`provider not found: ${id}`) as ApiResult<T>;
+      mockProviders[idx] = { ...mockProviders[idx], cooldownUntil: undefined };
+      return ok({ ...mockProviders[idx] }) as ApiResult<T>;
+    }
+
+    case "list_prompts":
+      return ok([...mockPrompts]) as ApiResult<T>;
+
+    case "upsert_prompt": {
+      const id = String(args?.id ?? `prompt-${Date.now()}`);
+      const name = String(args?.name ?? "untitled");
+      const body = String(args?.body ?? "");
+      const row: PromptRow = {
+        id,
+        name,
+        body,
+        updatedAt: now(),
+      };
+      const idx = mockPrompts.findIndex((p) => p.id === id);
+      if (idx >= 0) mockPrompts[idx] = row;
+      else mockPrompts = [row, ...mockPrompts];
+      return ok(row) as ApiResult<T>;
+    }
+
+    case "delete_prompt": {
+      const id = String(args?.id ?? "");
+      const before = mockPrompts.length;
+      mockPrompts = mockPrompts.filter((p) => p.id !== id);
+      return ok(before !== mockPrompts.length) as ApiResult<T>;
+    }
+
     default:
       return err(`unknown mock command: ${cmd}`) as ApiResult<T>;
   }
@@ -752,6 +804,10 @@ export function testProviderDraft(draft: ProviderDraft) {
 
 export function listAccounts() {
   return call<Account[]>("list_accounts");
+}
+
+export function upsertAccount(account: Account) {
+  return call<Account>("upsert_account", { account });
 }
 
 export function deleteAccount(id: string) {
@@ -859,6 +915,22 @@ export function startProxy() {
 
 export function stopProxy() {
   return call<ProxyStatus>("stop_proxy");
+}
+
+export function clearProviderCooldown(id: string) {
+  return call<Provider>("clear_provider_cooldown", { id });
+}
+
+export function listPrompts() {
+  return call<PromptRow[]>("list_prompts");
+}
+
+export function upsertPrompt(id: string, name: string, body: string) {
+  return call<PromptRow>("upsert_prompt", { id, name, body });
+}
+
+export function deletePrompt(id: string) {
+  return call<boolean>("delete_prompt", { id });
 }
 
 /** True when running inside a Tauri webview. */

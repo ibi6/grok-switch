@@ -183,6 +183,17 @@ pub fn run() {
             }
             spawn_focus_watcher(app.handle().clone(), paths.clone());
 
+            // Auto-start local proxy when settings.proxy_enabled is sticky.
+            match crate::core::settings_store::load_settings(&paths) {
+                Ok(s) if s.proxy_enabled => {
+                    match crate::core::proxy::start(&paths) {
+                        Ok(st) => eprintln!("proxy auto-started on {}", st.listen),
+                        Err(e) => eprintln!("proxy auto-start failed: {e}"),
+                    }
+                }
+                _ => {}
+            }
+
             // Close-to-tray when tray is enabled: hide window instead of quit.
             if let Some(window) = app.get_webview_window("main") {
                 let paths_close = paths_for_close.clone();
@@ -213,6 +224,7 @@ pub fn run() {
             commands::test_provider,
             commands::test_provider_draft,
             commands::list_accounts,
+            commands::upsert_account,
             commands::delete_account,
             commands::capture_current_account,
             commands::enable_account,
@@ -239,6 +251,10 @@ pub fn run() {
             commands::get_proxy_status,
             commands::start_proxy,
             commands::stop_proxy,
+            commands::clear_provider_cooldown,
+            commands::list_prompts,
+            commands::upsert_prompt,
+            commands::delete_prompt,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grok Switch");
