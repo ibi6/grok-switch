@@ -11,6 +11,7 @@ use crate::core::health::{self, HealthResult};
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
+use crate::core::mcp_store::{self, McpDraft, McpHealthResult, McpServer};
 use crate::core::skill_store::{self, SkillDetail, SkillDraft, SkillInfo, SkillScope};
 use crate::core::terminal;
 use crate::core::types::{
@@ -731,6 +732,98 @@ pub fn import_skills(
                 Some(HashMap::from([("count".into(), items.len().to_string())])),
             );
             ApiResult::ok(items)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn list_mcp_servers(state: State<'_, AppState>) -> ApiResult<Vec<McpServer>> {
+    ApiResult::from_result(mcp_store::list_mcp_servers(&state.paths))
+}
+
+#[tauri::command]
+pub fn get_mcp_server(state: State<'_, AppState>, name: String) -> ApiResult<McpServer> {
+    ApiResult::from_result(mcp_store::get_mcp_server(&state.paths, &name))
+}
+
+#[tauri::command]
+pub fn upsert_mcp_server(state: State<'_, AppState>, draft: McpDraft) -> ApiResult<McpServer> {
+    match mcp_store::upsert_mcp_server(&state.paths, &draft) {
+        Ok(server) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Mcp,
+                &format!("Saved MCP server {}", server.name),
+                Some(HashMap::from([("mcp".into(), server.name.clone())])),
+            );
+            ApiResult::ok(server)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn delete_mcp_server(state: State<'_, AppState>, name: String) -> ApiResult<bool> {
+    match mcp_store::delete_mcp_server(&state.paths, &name) {
+        Ok(removed) => {
+            if removed {
+                log_activity(
+                    &state.paths,
+                    ActivityType::Mcp,
+                    &format!("Deleted MCP server {name}"),
+                    Some(HashMap::from([("mcp".into(), name)])),
+                );
+            }
+            ApiResult::ok(removed)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn set_mcp_enabled(
+    state: State<'_, AppState>,
+    name: String,
+    enabled: bool,
+) -> ApiResult<McpServer> {
+    match mcp_store::set_mcp_enabled(&state.paths, &name, enabled) {
+        Ok(server) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Mcp,
+                &format!(
+                    "{} MCP server {name}",
+                    if enabled { "Enabled" } else { "Disabled" }
+                ),
+                Some(HashMap::from([
+                    ("mcp".into(), name),
+                    ("enabled".into(), enabled.to_string()),
+                ])),
+            );
+            ApiResult::ok(server)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn test_mcp_server(state: State<'_, AppState>, name: String) -> ApiResult<McpHealthResult> {
+    match mcp_store::check_mcp_server(&state.paths, &name) {
+        Ok(result) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Mcp,
+                &format!(
+                    "MCP health {name}: {}",
+                    if result.ok { "ok" } else { "fail" }
+                ),
+                Some(HashMap::from([
+                    ("mcp".into(), name),
+                    ("ok".into(), result.ok.to_string()),
+                ])),
+            );
+            ApiResult::ok(result)
         }
         Err(e) => ApiResult::err(e.to_string()),
     }

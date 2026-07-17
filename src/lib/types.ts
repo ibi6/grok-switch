@@ -27,7 +27,8 @@ export type ActivityType =
   | "restore"
   | "error"
   | "capture_account"
-  | "skill";
+  | "skill"
+  | "mcp";
 
 export interface ModelEntry {
   /** Section key WITHOUT `gs-` prefix */
@@ -169,6 +170,40 @@ export interface SkillDraft {
   name: string;
   description: string;
   content: string;
+}
+
+/** McpTransport: kebab-case */
+export type McpTransport = "stdio" | "http" | "unknown";
+
+export interface McpServer {
+  name: string;
+  command?: string;
+  args: string[];
+  url?: string;
+  env: Record<string, string>;
+  headers: Record<string, string>;
+  enabled: boolean;
+  startupTimeoutSec?: number;
+  toolTimeoutSec?: number;
+  transport: McpTransport;
+}
+
+export interface McpDraft {
+  name: string;
+  command?: string;
+  args: string[];
+  url?: string;
+  env: Record<string, string>;
+  headers: Record<string, string>;
+  enabled: boolean;
+  startupTimeoutSec?: number;
+  toolTimeoutSec?: number;
+}
+
+export interface McpHealthResult {
+  ok: boolean;
+  detail: string;
+  latencyMs: number;
 }
 
 export type ApiResult<T> = {

@@ -123,6 +123,7 @@ pub enum ActivityType {
     Error,
     CaptureAccount,
     Skill,
+    Mcp,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

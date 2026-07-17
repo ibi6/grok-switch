@@ -8,6 +8,7 @@ pub mod config_writer;
 pub mod error;
 pub mod health;
 pub mod mask;
+pub mod mcp_store;
 pub mod normalize;
 pub mod paths;
 pub mod provider_store;

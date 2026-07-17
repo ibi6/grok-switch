@@ -11,6 +11,7 @@ import { ProvidersPage } from "./pages/ProvidersPage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ImportPage } from "./pages/ImportPage";
 import { SkillsPage } from "./pages/SkillsPage";
+import { McpPage } from "./pages/McpPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -20,6 +21,7 @@ const PAGE_META: Record<PageId, { title: string; sub: string }> = {
   accounts: { title: "官方账号", sub: "捕获与切换 grok login 会话" },
   import: { title: "从 CC Switch 导入", sub: "读取本机 ~/.cc-switch 配置" },
   skills: { title: "Skills", sub: "管理 ~/.grok/skills 与提示词包" },
+  mcp: { title: "MCP", sub: "管理 config.toml 中的 mcp_servers" },
   activity: { title: "日志与备份", sub: "操作记录 + 一键恢复备份" },
   settings: { title: "设置", sub: "路径、备份与自动化" },
 };
@@ -327,6 +329,7 @@ export default function App() {
                 />
               )}
               {page === "skills" && <SkillsPage notify={notify} />}
+              {page === "mcp" && <McpPage notify={notify} />}
               {page === "activity" && (
                 <ActivityPage
                   activity={activity}

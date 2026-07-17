@@ -9,7 +9,7 @@ use crate::core::AppError;
 use chrono::Local;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Source location of a discovered skill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

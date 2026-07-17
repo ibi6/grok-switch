@@ -208,6 +208,12 @@ pub fn run() {
             commands::upsert_skill,
             commands::delete_skill,
             commands::import_skills,
+            commands::list_mcp_servers,
+            commands::get_mcp_server,
+            commands::upsert_mcp_server,
+            commands::delete_mcp_server,
+            commands::set_mcp_enabled,
+            commands::test_mcp_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grok Switch");

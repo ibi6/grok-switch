@@ -41,6 +41,8 @@ function labelFor(type: Activity["type"]): string {
       return "捕获账号";
     case "skill":
       return "Skill";
+    case "mcp":
+      return "MCP";
     case "error":
       return "错误";
     default:

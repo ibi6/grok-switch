@@ -22,6 +22,7 @@ It manages relay providers and official multi-account sessions the way CC Switch
 | **Official accounts** | Capture `grok login` sessions and switch between them |
 | **Import** | Read-only import from local CC Switch (`~/.cc-switch/cc-switch.db`) |
 | **Skills** | Manage `~/.grok/skills` (`SKILL.md`); import from `~/.cc-switch/skills`; backups on delete |
+| **MCP** | Manage `[mcp_servers.*]` in `~/.grok/config.toml` (stdio / HTTP); enable, probe, delete |
 | **Health checks** | Probe `chat_completions` / `responses` / `messages` before enable |
 | **Backups** | Auto-backup before switch; restore from UI |
 | **Desktop UX** | Tray icon, single-instance focus, light/dark/system theme |
@@ -35,7 +36,7 @@ It manages relay providers and official multi-account sessions the way CC Switch
 |-----------|----------|
 | Light SaaS-style provider list with enable / test / edit | Theme, paths, auto-backup, auto health-check |
 
-> Run the app locally to explore the full UI (Overview · Providers · Accounts · Import · Skills · Logs & Backups · Settings).
+> Run the app locally to explore the full UI (Overview · Providers · Accounts · Import · Skills · MCP · Logs & Backups · Settings).
 
 ---
 
@@ -249,6 +250,7 @@ Use third-party relays only where you are authorized to do so.
 - **官方多账号**：捕获 `grok login` 会话并切换
 - **CC Switch 导入**：只读扫描本机 `~/.cc-switch`
 - **Skills**：管理 `~/.grok/skills`（`SKILL.md`）；可从 `~/.cc-switch/skills` 导入；删除前备份到 `~/.grok-switch/skill-backups`
+- **MCP**：管理 `config.toml` 的 `[mcp_servers.*]`（stdio / HTTP），启停与探测
 - **测通 / 备份 / 托盘 / 浅色深色主题**
 - **凭证不出本机**
 

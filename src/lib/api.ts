@@ -15,6 +15,9 @@ import type {
   SkillDetail,
   SkillDraft,
   SkillInfo,
+  McpDraft,
+  McpHealthResult,
+  McpServer,
 } from "./types";
 
 export type { ApiResult } from "./types";
@@ -192,6 +195,19 @@ const mockSkillContents: Record<string, string> = {
   brainstorming:
     "---\nname: brainstorming\ndescription: Explore requirements before implementation\n---\n\n# Brainstorm\n",
 };
+
+let mockMcpServers: McpServer[] = [
+  {
+    name: "filesystem",
+    command: "npx",
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\dev"],
+    env: {},
+    headers: {},
+    enabled: true,
+    startupTimeoutSec: 30,
+    transport: "stdio",
+  },
+];
 
 function ok<T>(data: T): ApiResult<T> {
   return { ok: true, data };
@@ -550,6 +566,71 @@ async function mockInvoke<T>(
       return ok(imported) as ApiResult<T>;
     }
 
+    case "list_mcp_servers":
+      return ok(mockMcpServers.map((s) => ({ ...s, args: [...s.args], env: { ...s.env }, headers: { ...s.headers } }))) as ApiResult<T>;
+
+    case "get_mcp_server": {
+      const name = String(args?.name ?? "");
+      const s = mockMcpServers.find((x) => x.name === name);
+      if (!s) return err(`MCP server not found: ${name}`) as ApiResult<T>;
+      return ok({ ...s, args: [...s.args], env: { ...s.env }, headers: { ...s.headers } }) as ApiResult<T>;
+    }
+
+    case "upsert_mcp_server": {
+      const draft = args?.draft as McpDraft;
+      if (!draft?.name) return err("name required") as ApiResult<T>;
+      if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(draft.name) || draft.name.endsWith("-")) {
+        return err("invalid MCP name") as ApiResult<T>;
+      }
+      const hasCmd = Boolean(draft.command?.trim());
+      const hasUrl = Boolean(draft.url?.trim());
+      if (!hasCmd && !hasUrl) return err("need command or url") as ApiResult<T>;
+      const server: McpServer = {
+        name: draft.name,
+        command: draft.command,
+        args: draft.args ?? [],
+        url: draft.url,
+        env: draft.env ?? {},
+        headers: draft.headers ?? {},
+        enabled: draft.enabled ?? true,
+        startupTimeoutSec: draft.startupTimeoutSec,
+        toolTimeoutSec: draft.toolTimeoutSec,
+        transport: hasUrl ? "http" : hasCmd ? "stdio" : "unknown",
+      };
+      const idx = mockMcpServers.findIndex((x) => x.name === server.name);
+      if (idx >= 0) mockMcpServers[idx] = server;
+      else mockMcpServers = [...mockMcpServers, server];
+      return ok(server) as ApiResult<T>;
+    }
+
+    case "delete_mcp_server": {
+      const name = String(args?.name ?? "");
+      const before = mockMcpServers.length;
+      mockMcpServers = mockMcpServers.filter((s) => s.name !== name);
+      return ok(before !== mockMcpServers.length) as ApiResult<T>;
+    }
+
+    case "set_mcp_enabled": {
+      const name = String(args?.name ?? "");
+      const enabled = Boolean(args?.enabled);
+      const idx = mockMcpServers.findIndex((s) => s.name === name);
+      if (idx < 0) return err(`MCP server not found: ${name}`) as ApiResult<T>;
+      mockMcpServers[idx] = { ...mockMcpServers[idx], enabled };
+      return ok({ ...mockMcpServers[idx] }) as ApiResult<T>;
+    }
+
+    case "test_mcp_server": {
+      const name = String(args?.name ?? "");
+      const s = mockMcpServers.find((x) => x.name === name);
+      if (!s) return err(`MCP server not found: ${name}`) as ApiResult<T>;
+      const result: McpHealthResult = {
+        ok: true,
+        detail: s.transport === "http" ? "HTTP 200 (mock)" : `command on PATH: ${s.command ?? "?"}`,
+        latencyMs: 12,
+      };
+      return ok(result) as ApiResult<T>;
+    }
+
     default:
       return err(`unknown mock command: ${cmd}`) as ApiResult<T>;
   }
@@ -668,6 +749,30 @@ export function deleteSkill(name: string) {
 
 export function importSkills(names: string[] = [], source: "cc-switch" | "claude" = "cc-switch") {
   return call<SkillInfo[]>("import_skills", { names, source });
+}
+
+export function listMcpServers() {
+  return call<McpServer[]>("list_mcp_servers");
+}
+
+export function getMcpServer(name: string) {
+  return call<McpServer>("get_mcp_server", { name });
+}
+
+export function upsertMcpServer(draft: McpDraft) {
+  return call<McpServer>("upsert_mcp_server", { draft });
+}
+
+export function deleteMcpServer(name: string) {
+  return call<boolean>("delete_mcp_server", { name });
+}
+
+export function setMcpEnabled(name: string, enabled: boolean) {
+  return call<McpServer>("set_mcp_enabled", { name, enabled });
+}
+
+export function testMcpServer(name: string) {
+  return call<McpHealthResult>("test_mcp_server", { name });
 }
 
 /** True when running inside a Tauri webview. */

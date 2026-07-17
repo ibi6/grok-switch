@@ -1,5 +1,6 @@
 import {
   Activity,
+  Cable,
   Download,
   LayoutDashboard,
   Server,
@@ -16,6 +17,7 @@ export type PageId =
   | "accounts"
   | "import"
   | "skills"
+  | "mcp"
   | "activity"
   | "settings";
 
@@ -25,6 +27,7 @@ const NAV: { id: PageId; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: "accounts", label: "官方账号", Icon: UserRound },
   { id: "import", label: "导入", Icon: Download },
   { id: "skills", label: "Skills", Icon: Sparkles },
+  { id: "mcp", label: "MCP", Icon: Cable },
   { id: "activity", label: "日志备份", Icon: Activity },
   { id: "settings", label: "设置", Icon: Settings2 },
 ];
