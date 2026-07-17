@@ -270,6 +270,12 @@ textarea:focus-visible {
   border: 1px solid var(--accent-ring, rgba(124, 108, 255, 0.28));
 }
 
+.ghost-btn.is-proxy-on {
+  color: var(--success, #22c55e);
+  border-color: color-mix(in srgb, var(--success, #22c55e) 35%, transparent);
+  background: color-mix(in srgb, var(--success, #22c55e) 12%, transparent);
+}
+
 .nav-item:hover {
   background: var(--nav-hover);
   color: var(--text);

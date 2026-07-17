@@ -931,6 +931,35 @@ pub fn get_cli_status(state: State<'_, AppState>) -> ApiResult<CliStatus> {
     ApiResult::from_result(cli_status::get_cli_status(&state.paths))
 }
 
+/// Open app data / Grok home / backups in the OS file manager.
+#[tauri::command]
+pub fn open_folder(state: State<'_, AppState>, which: String) -> ApiResult<String> {
+    let path = match which.as_str() {
+        "app" | "app_home" => state.paths.app_home.clone(),
+        "grok" | "grok_home" => {
+            // Honor custom grok home from settings.
+            match settings_store::load_settings(&state.paths) {
+                Ok(s) if !s.grok_home.trim().is_empty() => {
+                    std::path::PathBuf::from(s.grok_home.trim())
+                }
+                _ => state.paths.grok_home.clone(),
+            }
+        }
+        "backups" => state.paths.backups_dir.clone(),
+        "skills" => state.paths.grok_skills_dir.clone(),
+        "logs" => state.paths.app_home.clone(),
+        other => {
+            return ApiResult::err(format!(
+                "unknown folder target: {other} (app|grok|backups|skills)"
+            ));
+        }
+    };
+    match crate::core::paths::Paths::reveal_dir(&path) {
+        Ok(()) => ApiResult::ok(path.to_string_lossy().into_owned()),
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
 #[tauri::command]
 pub fn list_activity(
     state: State<'_, AppState>,

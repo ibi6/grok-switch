@@ -77,6 +77,7 @@ export default function App() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
   const [cli, setCli] = useState<CliStatus | null>(null);
+  const [proxyRunning, setProxyRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState({ message: "", tone: "ok" as ToastTone });
   const [switching, setSwitching] = useState(false);
@@ -109,12 +110,13 @@ export default function App() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [s, p, a, act, c] = await Promise.all([
+    const [s, p, a, act, c, px] = await Promise.all([
       api.getSettings(),
       api.listProviders(),
       api.listAccounts(),
       api.listActivity(50),
       api.getCliStatus(),
+      api.getProxyStatus(),
     ]);
 
     if (s.ok && s.data) {
@@ -126,6 +128,7 @@ export default function App() {
     if (a.ok && a.data) setAccounts(a.data);
     if (act.ok && act.data) setActivity(act.data);
     if (c.ok && c.data) setCli(c.data);
+    if (px.ok && px.data) setProxyRunning(px.data.running);
   }, [notify]);
 
   useEffect(() => {
@@ -234,6 +237,52 @@ export default function App() {
     );
   };
 
+  // Keyboard shortcuts (CC Switch-ish power user flow).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      const t = e.target as HTMLElement | null;
+      const tag = t?.tagName?.toLowerCase();
+      if (tag === "input" || tag === "textarea" || t?.isContentEditable) return;
+
+      if (e.key === "1") {
+        e.preventDefault();
+        setPage("overview");
+      } else if (e.key === "2") {
+        e.preventDefault();
+        setPage("providers");
+      } else if (e.key === "3") {
+        e.preventDefault();
+        setPage("accounts");
+      } else if (e.key === "4") {
+        e.preventDefault();
+        setPage("import");
+      } else if (e.key === "5") {
+        e.preventDefault();
+        setPage("skills");
+      } else if (e.key === "6") {
+        e.preventDefault();
+        setPage("mcp");
+      } else if (e.key === "7") {
+        e.preventDefault();
+        setPage("activity");
+      } else if (e.key === "8" || e.key === ",") {
+        e.preventDefault();
+        setPage("settings");
+      } else if (e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        void refresh();
+        notify("已刷新");
+      } else if (e.key.toLowerCase() === "t" && hasCurrent) {
+        e.preventDefault();
+        void openGrokTerminal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [refresh, notify, hasCurrent, currentModelId]);
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -274,12 +323,27 @@ export default function App() {
             )}
           </div>
           <div className="header-actions">
+            <button
+              type="button"
+              className={`ghost-btn ${proxyRunning ? "is-proxy-on" : ""}`}
+              title={
+                proxyRunning
+                  ? "本地代理运行中 · 点击前往设置"
+                  : "本地代理未启动 · 点击前往设置"
+              }
+              onClick={() => setPage("settings")}
+            >
+              <span
+                className={`status-dot ${proxyRunning ? "" : "status-dot-warn"}`}
+              />
+              {proxyRunning ? "代理 ON" : "代理 OFF"}
+            </button>
             {hasCurrent && (
               <button
                 type="button"
                 className="ghost-btn"
                 onClick={() => void openGrokTerminal()}
-                title="在终端打开 grok"
+                title="在终端打开 grok (Ctrl+T)"
               >
                 <Terminal size={14} /> 打开 Grok
               </button>
@@ -288,8 +352,23 @@ export default function App() {
               type="button"
               className="ghost-btn"
               onClick={() => void refreshCli()}
+              title="检测 CLI"
             >
               <RefreshCw size={14} /> 检测 CLI
+            </button>
+            <button
+              type="button"
+              className="ghost-btn"
+              title="打开应用数据目录"
+              onClick={() => {
+                void (async () => {
+                  const res = await api.openFolder("app");
+                  if (!res.ok) notify(res.error ?? "打开失败", "error");
+                  else notify(`已打开 ${res.data}`);
+                })();
+              }}
+            >
+              目录
             </button>
             {page === "providers" && (
               <button

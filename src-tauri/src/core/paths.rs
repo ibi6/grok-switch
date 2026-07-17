@@ -77,6 +77,39 @@ impl Paths {
         self.skill_dir(name).join("SKILL.md")
     }
 
+    /// Reveal a directory in the OS file manager (Explorer / Finder / xdg-open).
+    pub fn reveal_dir(path: &std::path::Path) -> Result<(), AppError> {
+        if !path.exists() {
+            fs::create_dir_all(path)?;
+        }
+        #[cfg(windows)]
+        {
+            std::process::Command::new("explorer")
+                .arg(path)
+                .spawn()
+                .map_err(|e| AppError::Message(format!("open folder failed: {e}")))?;
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(path)
+                .spawn()
+                .map_err(|e| AppError::Message(format!("open folder failed: {e}")))?;
+            return Ok(());
+        }
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(path)
+                .spawn()
+                .map_err(|e| AppError::Message(format!("open folder failed: {e}")))?;
+            return Ok(());
+        }
+        #[allow(unreachable_code)]
+        Err(AppError::Message("reveal_dir not supported on this OS".into()))
+    }
+
     /// Override Grok home / config / auth paths from settings (if non-empty).
     /// App data (providers, settings) stays under `app_home`.
     pub fn with_grok_home(&self, grok_home: impl AsRef<Path>) -> Self {

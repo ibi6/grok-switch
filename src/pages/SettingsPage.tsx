@@ -428,6 +428,41 @@ export function SettingsPage({
             <Check size={13} /> 本地
           </span>
         </div>
+
+        <div className="setting-row">
+          <div className="setting-icon">
+            <Terminal size={17} />
+          </div>
+          <div className="setting-copy">
+            <b>打开目录</b>
+            <span>在资源管理器中打开数据 / Grok / 备份 / Skills。</span>
+          </div>
+          <div className="header-actions" style={{ flexWrap: "wrap", gap: 6 }}>
+            {(
+              [
+                ["app", "应用数据"],
+                ["grok", "Grok 目录"],
+                ["backups", "备份"],
+                ["skills", "Skills"],
+              ] as const
+            ).map(([which, label]) => (
+              <button
+                key={which}
+                type="button"
+                className="ghost-btn"
+                onClick={() => {
+                  void (async () => {
+                    const res = await api.openFolder(which);
+                    if (!res.ok) notify(res.error ?? "打开失败", "error");
+                    else notify(`已打开 ${res.data}`);
+                  })();
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

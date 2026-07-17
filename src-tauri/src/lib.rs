@@ -262,6 +262,7 @@ pub fn run() {
             commands::import_providers_json,
             commands::test_providers_batch,
             commands::get_cli_status,
+            commands::open_folder,
             commands::list_activity,
             commands::list_backups,
             commands::restore_backup,

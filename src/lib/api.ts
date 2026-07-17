@@ -619,6 +619,9 @@ async function mockInvoke<T>(
       return ok(status) as ApiResult<T>;
     }
 
+    case "open_folder":
+      return ok(String(args?.which ?? "app")) as ApiResult<T>;
+
     case "list_activity": {
       const limit = Number(args?.limit ?? 50);
       return ok(mockActivity.slice(0, limit).map((a) => ({ ...a }))) as ApiResult<T>;
@@ -972,6 +975,10 @@ export function testProvidersBatch(ids?: string[]) {
 
 export function getCliStatus() {
   return call<CliStatus>("get_cli_status");
+}
+
+export function openFolder(which: "app" | "grok" | "backups" | "skills" | "logs") {
+  return call<string>("open_folder", { which });
 }
 
 export function listActivity(limit?: number) {

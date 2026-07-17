@@ -11,11 +11,14 @@ import {
   Trash2,
   Zap,
 } from "lucide-react";
-import type { Provider, Settings } from "../lib/types";
+import type { HealthResult, Provider, Settings } from "../lib/types";
 import { maskSecret } from "../lib/mask";
 import { backendLabel, modelFlag } from "../lib/providerUtils";
 import * as api from "../lib/api";
 import { ProviderForm } from "../components/ProviderForm";
+
+type SortMode = "name" | "priority" | "updated";
+type HealthMap = Record<string, HealthResult>;
 
 const AVATAR_COLORS = [
   "#4c8dff",
@@ -51,10 +54,28 @@ export function ProvidersPage({
   ) => Promise<T | undefined>;
 }) {
   const [query, setQuery] = useState("");
+  const [sortMode, setSortMode] = useState<SortMode>("name");
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [healthMap, setHealthMap] = useState<HealthMap>(() => {
+    try {
+      const raw = sessionStorage.getItem("gs-health");
+      return raw ? (JSON.parse(raw) as HealthMap) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const persistHealth = (next: HealthMap) => {
+    setHealthMap(next);
+    try {
+      sessionStorage.setItem("gs-health", JSON.stringify(next));
+    } catch {
+      /* ignore */
+    }
+  };
 
   useEffect(() => {
     const open = () => {
@@ -76,14 +97,22 @@ export function ProvidersPage({
     const list = providers.filter((p) =>
       (p.name + p.baseUrl + p.apiBackend).toLowerCase().includes(q),
     );
-    // Current first, then by name
+    // Current first, then sort mode
     const cur = settings?.currentProviderId;
     return [...list].sort((a, b) => {
       if (a.id === cur) return -1;
       if (b.id === cur) return 1;
+      if (sortMode === "priority") {
+        const d = (b.priority ?? 0) - (a.priority ?? 0);
+        if (d !== 0) return d;
+      }
+      if (sortMode === "updated") {
+        const d = (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+        if (d !== 0) return d;
+      }
       return a.name.localeCompare(b.name, "zh");
     });
-  }, [providers, query, settings?.currentProviderId]);
+  }, [providers, query, settings?.currentProviderId, sortMode]);
 
   const openCreate = () => {
     setEditing(null);
@@ -204,6 +233,7 @@ export function ProvidersPage({
         notify(res.error ?? "测通失败", "error");
         return;
       }
+      persistHealth({ ...healthMap, [id]: res.data });
       notify(
         res.data.ok
           ? `测通成功 · ${res.data.latencyMs}ms`
@@ -250,6 +280,9 @@ export function ProvidersPage({
         notify(res.error ?? "批量测通失败", "error");
         return;
       }
+      const next: HealthMap = { ...healthMap };
+      for (const [id, h] of res.data) next[id] = h;
+      persistHealth(next);
       const okN = res.data.filter(([, h]) => h.ok).length;
       const failN = res.data.length - okN;
       notify(
@@ -312,6 +345,16 @@ export function ProvidersPage({
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
+        <select
+          value={sortMode}
+          onChange={(e) => setSortMode(e.target.value as SortMode)}
+          title="排序"
+          style={{ height: 38, borderRadius: 12 }}
+        >
+          <option value="name">按名称</option>
+          <option value="priority">按优先级</option>
+          <option value="updated">按最近更新</option>
+        </select>
         <button
           type="button"
           className="ghost-btn"
@@ -374,6 +417,7 @@ export function ProvidersPage({
               "—";
             const enabling = busy === `enable-${p.id}`;
             const testing = busy === `test-${p.id}`;
+            const health = healthMap[p.id];
 
             return (
               <div
@@ -413,6 +457,14 @@ export function ProvidersPage({
                     <span className="badge badge-backend">
                       {backendLabel(p.apiBackend)}
                     </span>
+                    {health && (
+                      <span
+                        className={`badge ${health.ok ? "badge-current" : "badge-muted"}`}
+                        title={health.detail}
+                      >
+                        {health.ok ? `✓ ${health.latencyMs}ms` : "测通失败"}
+                      </span>
+                    )}
                     {p.source === "cc-switch" && (
                       <span className="badge badge-muted">CC Switch</span>
                     )}
