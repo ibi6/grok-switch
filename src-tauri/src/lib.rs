@@ -172,6 +172,7 @@ pub fn run() {
         std::process::exit(0);
     }
 
+    let paths_for_close = paths.clone();
     tauri::Builder::default()
         .manage(AppState {
             paths: paths.clone(),
@@ -181,6 +182,25 @@ pub fn run() {
                 eprintln!("tray setup failed: {err}");
             }
             spawn_focus_watcher(app.handle().clone(), paths.clone());
+
+            // Close-to-tray when tray is enabled: hide window instead of quit.
+            if let Some(window) = app.get_webview_window("main") {
+                let paths_close = paths_for_close.clone();
+                let handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        let tray_on = crate::core::settings_store::load_settings(&paths_close)
+                            .map(|s| s.tray_enabled)
+                            .unwrap_or(true);
+                        if tray_on {
+                            api.prevent_close();
+                            if let Some(w) = handle.get_webview_window("main") {
+                                let _ = w.hide();
+                            }
+                        }
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

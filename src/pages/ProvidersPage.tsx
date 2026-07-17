@@ -298,6 +298,14 @@ export function ProvidersPage({
                     {p.source === "cc-switch" && (
                       <span className="badge badge-muted">CC Switch</span>
                     )}
+                    {p.poolEnabled === false && (
+                      <span className="badge badge-muted">池外</span>
+                    )}
+                    {(p.priority ?? 0) !== 0 && (
+                      <span className="badge badge-backend" title="池优先级">
+                        P{p.priority}
+                      </span>
+                    )}
                   </div>
                   <div className="provider-meta">
                     <code title={p.baseUrl}>{p.baseUrl}</code>
@@ -313,6 +321,7 @@ export function ProvidersPage({
                       {modelFlag(p)}
                     </code>
                     <span title="API Key">{maskSecret(p.apiKey)}</span>
+                    <span title="池权重">w{p.weight ?? 100}</span>
                   </div>
                 </div>
 

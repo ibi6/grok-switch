@@ -35,6 +35,9 @@ export type ProviderFormValues = {
   fallbackModel: string;
   extras: ExtraModelRow[];
   advancedOpen: boolean;
+  priority: number;
+  weight: number;
+  poolEnabled: boolean;
 };
 
 function ensureTrailingSlashFree(url: string): string {
@@ -80,6 +83,9 @@ function fromProvider(p?: Provider | null): ProviderFormValues {
       fallbackModel: "",
       extras: [],
       advancedOpen: true,
+      priority: 0,
+      weight: 100,
+      poolEnabled: true,
     };
   }
 
@@ -110,6 +116,9 @@ function fromProvider(p?: Provider | null): ProviderFormValues {
     fallbackModel: "",
     extras,
     advancedOpen: true,
+    priority: p.priority ?? 0,
+    weight: p.weight ?? 100,
+    poolEnabled: p.poolEnabled ?? true,
   };
 }
 
@@ -245,9 +254,9 @@ export function ProviderForm({
       source: initial?.source ?? "manual",
       createdAt: initial?.createdAt ?? now,
       updatedAt: now,
-      priority: initial?.priority ?? 0,
-      weight: initial?.weight ?? 100,
-      poolEnabled: initial?.poolEnabled ?? true,
+      priority: values.priority,
+      weight: Math.max(1, values.weight || 100),
+      poolEnabled: values.poolEnabled,
       cooldownUntil: initial?.cooldownUntil,
     };
   };
@@ -689,6 +698,38 @@ export function ProviderForm({
                   [models].default。备用模型会一并写入 config 的 gs-* 列表，便于
                   /model 切换。
                 </small>
+              </label>
+
+              <div className="sheet-row-2">
+                <label className="sheet-field">
+                  <span>池优先级（越大越先）</span>
+                  <input
+                    type="number"
+                    value={values.priority}
+                    onChange={(e) =>
+                      set("priority", Number(e.target.value) || 0)
+                    }
+                  />
+                </label>
+                <label className="sheet-field">
+                  <span>池权重</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={values.weight}
+                    onChange={(e) =>
+                      set("weight", Math.max(1, Number(e.target.value) || 100))
+                    }
+                  />
+                </label>
+              </div>
+              <label className="sheet-check" style={{ gap: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={values.poolEnabled}
+                  onChange={(e) => set("poolEnabled", e.target.checked)}
+                />
+                <span>参与本地代理池 / 故障切换</span>
               </label>
             </div>
           )}

@@ -6,12 +6,15 @@ use crate::core::provider_store::list_providers;
 use crate::core::settings_store::load_settings;
 use crate::core::types::AppMode;
 use crate::core::Paths;
+use std::sync::Mutex;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    AppHandle, Manager, Runtime,
+    AppHandle, Manager, Runtime, Wry,
 };
+
+static TRAY_ICON: Mutex<Option<tauri::tray::TrayIcon<Wry>>> = Mutex::new(None);
 
 /// Build tooltip: `Grok Switch · {mode}: {name}` when a current target is known.
 pub fn tray_tooltip(paths: &Paths) -> String {
@@ -57,24 +60,13 @@ fn show_main_window<R: Runtime>(app: &AppHandle<R>) {
     }
 }
 
-/// Create the tray icon when settings allow it.
-pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Result<()> {
+fn recent_providers(paths: &Paths) -> (Vec<crate::core::types::Provider>, Option<String>) {
     let settings =
         load_settings(paths).unwrap_or_else(|_| crate::core::settings_store::default_settings(paths));
-    if !settings.tray_enabled {
-        return Ok(());
-    }
-
-    let open_i = MenuItem::with_id(app, "open", "打开主界面", true, None::<&str>)?;
-    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let sep = PredefinedMenuItem::separator(app)?;
-
-    // Recent providers (up to 5) for quick switch
     let providers = list_providers(paths).unwrap_or_default();
     let current = settings.current_provider_id.clone();
     let mut recent: Vec<_> = providers.into_iter().collect();
     recent.sort_by(|a, b| {
-        // current first, then updated_at desc
         let ac = Some(&a.id) == current.as_ref();
         let bc = Some(&b.id) == current.as_ref();
         match (ac, bc) {
@@ -84,8 +76,19 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
         }
     });
     recent.truncate(5);
+    (recent, current)
+}
 
-    let mut items: Vec<&dyn tauri::menu::IsMenuItem<R>> = Vec::new();
+fn build_menu<R: Runtime>(
+    app: &AppHandle<R>,
+    paths: &Paths,
+) -> tauri::Result<(Menu<R>, Vec<MenuItem<R>>)> {
+    let open_i = MenuItem::with_id(app, "open", "打开主界面", true, None::<&str>)?;
+    let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let refresh_i = MenuItem::with_id(app, "refresh", "刷新菜单", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+
+    let (recent, current) = recent_providers(paths);
     let mut provider_items: Vec<MenuItem<R>> = Vec::new();
     for p in &recent {
         let mark = if Some(&p.id) == current.as_ref() {
@@ -99,6 +102,8 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
             provider_items.push(item);
         }
     }
+
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<R>> = Vec::new();
     for it in &provider_items {
         items.push(it);
     }
@@ -106,10 +111,41 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
         items.push(&sep);
     }
     items.push(&open_i);
+    items.push(&refresh_i);
     items.push(&quit_i);
 
     let menu = Menu::with_items(app, &items)?;
+    // Keep provider_items alive until menu is set on tray — caller drops after set_menu.
+    // We return them so they aren't dropped before set_menu.
+    let _keep = (open_i, quit_i, refresh_i, sep);
+    // Actually Menu::with_items clones item refs internally in Tauri 2 — items can drop.
+    let _ = _keep;
+    Ok((menu, provider_items))
+}
 
+/// Refresh tray menu + tooltip from current settings/providers.
+pub fn refresh_tray(app: &AppHandle<Wry>, paths: &Paths) {
+    let Ok(mut slot) = TRAY_ICON.lock() else {
+        return;
+    };
+    let Some(tray) = slot.as_mut() else {
+        return;
+    };
+    if let Ok((menu, _items)) = build_menu(app, paths) {
+        let _ = tray.set_menu(Some(menu));
+    }
+    let _ = tray.set_tooltip(Some(tray_tooltip(paths)));
+}
+
+/// Create the tray icon when settings allow it.
+pub fn setup_tray(app: &AppHandle<Wry>, paths: &Paths) -> tauri::Result<()> {
+    let settings =
+        load_settings(paths).unwrap_or_else(|_| crate::core::settings_store::default_settings(paths));
+    if !settings.tray_enabled {
+        return Ok(());
+    }
+
+    let (menu, _provider_items) = build_menu(app, paths)?;
     let tooltip = tray_tooltip(paths);
     let icon = app
         .default_window_icon()
@@ -117,7 +153,8 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
         .unwrap_or_else(|| Image::new_owned(vec![0, 0, 0, 255], 1, 1));
 
     let paths_for_menu = paths.clone();
-    let _tray = TrayIconBuilder::new()
+    let paths_for_refresh = paths.clone();
+    let tray = TrayIconBuilder::new()
         .icon(icon)
         .tooltip(&tooltip)
         .menu(&menu)
@@ -132,11 +169,15 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
                 app.exit(0);
                 return;
             }
+            if id == "refresh" {
+                refresh_tray(app, &paths_for_refresh);
+                return;
+            }
             if let Some(pid) = id.strip_prefix("prov:") {
                 match enable_provider_flow(&paths_for_menu, pid, true) {
                     Ok(_) => {
-                        // Refresh tooltip by rebuilding is hard; show window briefly optional
                         eprintln!("tray: switched provider {pid}");
+                        refresh_tray(app, &paths_for_menu);
                     }
                     Err(e) => eprintln!("tray switch failed: {e}"),
                 }
@@ -153,6 +194,10 @@ pub fn setup_tray<R: Runtime>(app: &AppHandle<R>, paths: &Paths) -> tauri::Resul
             }
         })
         .build(app)?;
+
+    if let Ok(mut slot) = TRAY_ICON.lock() {
+        *slot = Some(tray);
+    }
 
     Ok(())
 }

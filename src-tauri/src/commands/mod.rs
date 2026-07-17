@@ -562,15 +562,16 @@ pub fn delete_provider(state: State<'_, AppState>, id: String) -> ApiResult<bool
 
 #[tauri::command]
 pub fn enable_provider(
+    app: tauri::AppHandle,
     state: State<'_, AppState>,
     id: String,
     force: Option<bool>,
 ) -> ApiResult<EnableProviderResult> {
-    ApiResult::from_result(enable_provider_flow(
-        &state.paths,
-        &id,
-        force.unwrap_or(false),
-    ))
+    let result = enable_provider_flow(&state.paths, &id, force.unwrap_or(false));
+    if result.is_ok() {
+        crate::tray::refresh_tray(&app, &state.paths);
+    }
+    ApiResult::from_result(result)
 }
 
 #[tauri::command]
