@@ -10,7 +10,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import type { SkillDetail, SkillInfo } from "../lib/types";
+import type { PromptRow, SkillDetail, SkillInfo } from "../lib/types";
 import * as api from "../lib/api";
 
 const NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
@@ -43,17 +43,25 @@ export function SkillsPage({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(emptyDraft());
   const [creating, setCreating] = useState(false);
+  const [prompts, setPrompts] = useState<PromptRow[]>([]);
+  const [promptName, setPromptName] = useState("");
+  const [promptBody, setPromptBody] = useState("");
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.listSkills();
+      const [res, pr] = await Promise.all([
+        api.listSkills(),
+        api.listPrompts(),
+      ]);
       if (!res.ok || !res.data) {
         notify(res.error ?? "加载 skills 失败", "error");
         setSkills([]);
-        return;
+      } else {
+        setSkills(res.data);
       }
-      setSkills(res.data);
+      if (pr.ok && pr.data) setPrompts(pr.data);
     } finally {
       setLoading(false);
     }
@@ -453,6 +461,165 @@ export function SkillsPage({
           </div>
         </div>
       )}
+
+      <div className="section-head" style={{ marginTop: 28 }}>
+        <div>
+          <h2>提示词片段</h2>
+          <p>
+            本地 SQLite <code>prompts</code> 表，可复用的短提示词（非
+            SKILL.md）。
+          </p>
+        </div>
+      </div>
+
+      <div className="skills-layout" style={{ marginBottom: 24 }}>
+        <div className="skills-list-pane">
+          {prompts.length === 0 ? (
+            <div className="empty-state">
+              <b>还没有提示词</b>
+              <p>在右侧创建一条短提示词，存到本机数据库。</p>
+            </div>
+          ) : (
+            <div className="provider-list">
+              {prompts.map((p) => (
+                <div key={p.id} className="provider-card">
+                  <div
+                    className="provider-avatar"
+                    style={{ background: "#a855f7" }}
+                  >
+                    {p.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  <div className="provider-body">
+                    <div className="provider-title-row">
+                      <b>{p.name}</b>
+                    </div>
+                    <div className="provider-meta">
+                      <span>
+                        {p.body.length > 80 ? `${p.body.slice(0, 80)}…` : p.body}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="provider-actions">
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      onClick={() => {
+                        setEditingPromptId(p.id);
+                        setPromptName(p.name);
+                        setPromptBody(p.body);
+                      }}
+                    >
+                      <Pencil size={14} /> 编辑
+                    </button>
+                    <button
+                      type="button"
+                      className="icon-btn"
+                      title="删除"
+                      onClick={() => {
+                        void (async () => {
+                          if (!window.confirm(`删除提示词「${p.name}」？`))
+                            return;
+                          const res = await api.deletePrompt(p.id);
+                          if (!res.ok) {
+                            notify(res.error ?? "删除失败", "error");
+                            return;
+                          }
+                          notify("已删除提示词");
+                          if (editingPromptId === p.id) {
+                            setEditingPromptId(null);
+                            setPromptName("");
+                            setPromptBody("");
+                          }
+                          await load();
+                        })();
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="skills-editor-pane">
+          <div className="skills-editor card-like">
+            <div className="skills-editor-head">
+              <b>{editingPromptId ? "编辑提示词" : "新建提示词"}</b>
+              <div className="header-actions">
+                {editingPromptId && (
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    onClick={() => {
+                      setEditingPromptId(null);
+                      setPromptName("");
+                      setPromptBody("");
+                    }}
+                  >
+                    取消
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="primary-btn"
+                  disabled={busy === "prompt-save"}
+                  onClick={() => {
+                    void (async () => {
+                      if (!promptName.trim() || !promptBody.trim()) {
+                        notify("名称和正文不能为空", "error");
+                        return;
+                      }
+                      setBusy("prompt-save");
+                      try {
+                        const res = await api.upsertPrompt(
+                          editingPromptId ?? "",
+                          promptName.trim(),
+                          promptBody,
+                        );
+                        if (!res.ok || !res.data) {
+                          notify(res.error ?? "保存失败", "error");
+                          return;
+                        }
+                        notify(`已保存提示词：${res.data.name}`);
+                        setEditingPromptId(null);
+                        setPromptName("");
+                        setPromptBody("");
+                        await load();
+                      } finally {
+                        setBusy(null);
+                      }
+                    })();
+                  }}
+                >
+                  {busy === "prompt-save" ? (
+                    <LoaderCircle className="spin" size={15} />
+                  ) : null}
+                  保存
+                </button>
+              </div>
+            </div>
+            <label className="sheet-field">
+              <span>名称</span>
+              <input
+                value={promptName}
+                onChange={(e) => setPromptName(e.target.value)}
+                placeholder="例如：代码审查"
+              />
+            </label>
+            <label className="sheet-field">
+              <span>正文</span>
+              <textarea
+                className="skills-body"
+                rows={8}
+                value={promptBody}
+                onChange={(e) => setPromptBody(e.target.value)}
+                placeholder="可复用的短提示词…"
+              />
+            </label>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

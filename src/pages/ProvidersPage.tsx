@@ -307,6 +307,11 @@ export function ProvidersPage({
                         P{p.priority}
                       </span>
                     )}
+                    {p.cooldownUntil && p.cooldownUntil * 1000 > Date.now() && (
+                      <span className="badge badge-muted" title="故障冷却中">
+                        冷却中
+                      </span>
+                    )}
                   </div>
                   <div className="provider-meta">
                     <code title={p.baseUrl}>{p.baseUrl}</code>

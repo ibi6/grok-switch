@@ -233,6 +233,33 @@ export function AccountsPage({
                     type="button"
                     className="ghost-btn"
                     disabled={!!busy}
+                    title="提高优先级"
+                    onClick={() => {
+                      void (async () => {
+                        setBusy(`pri-${a.id}`);
+                        try {
+                          const res = await api.upsertAccount({
+                            ...a,
+                            priority: (a.priority ?? 0) + 1,
+                          });
+                          if (!res.ok) {
+                            notify(res.error ?? "更新失败", "error");
+                            return;
+                          }
+                          notify(`${a.name} 优先级 → ${(a.priority ?? 0) + 1}`);
+                          await onRefresh();
+                        } finally {
+                          setBusy(null);
+                        }
+                      })();
+                    }}
+                  >
+                    P+
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-btn"
+                    disabled={!!busy}
                     title="切换是否参与账号池"
                     onClick={() => {
                       void (async () => {
