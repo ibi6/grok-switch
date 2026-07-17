@@ -10,6 +10,7 @@ import { OverviewPage } from "./pages/OverviewPage";
 import { ProvidersPage } from "./pages/ProvidersPage";
 import { AccountsPage } from "./pages/AccountsPage";
 import { ImportPage } from "./pages/ImportPage";
+import { SkillsPage } from "./pages/SkillsPage";
 import { ActivityPage } from "./pages/ActivityPage";
 import { SettingsPage } from "./pages/SettingsPage";
 
@@ -18,6 +19,7 @@ const PAGE_META: Record<PageId, { title: string; sub: string }> = {
   providers: { title: "供应商", sub: "管理 base_url / key / 模型，一键启用" },
   accounts: { title: "官方账号", sub: "捕获与切换 grok login 会话" },
   import: { title: "从 CC Switch 导入", sub: "读取本机 ~/.cc-switch 配置" },
+  skills: { title: "Skills", sub: "管理 ~/.grok/skills 与提示词包" },
   activity: { title: "日志与备份", sub: "操作记录 + 一键恢复备份" },
   settings: { title: "设置", sub: "路径、备份与自动化" },
 };
@@ -324,6 +326,7 @@ export default function App() {
                   withSwitching={withSwitching}
                 />
               )}
+              {page === "skills" && <SkillsPage notify={notify} />}
               {page === "activity" && (
                 <ActivityPage
                   activity={activity}

@@ -122,6 +122,7 @@ pub enum ActivityType {
     Restore,
     Error,
     CaptureAccount,
+    Skill,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

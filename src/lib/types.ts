@@ -26,7 +26,8 @@ export type ActivityType =
   | "backup"
   | "restore"
   | "error"
-  | "capture_account";
+  | "capture_account"
+  | "skill";
 
 export interface ModelEntry {
   /** Section key WITHOUT `gs-` prefix */
@@ -142,6 +143,32 @@ export interface EnableProviderResult {
 export interface EnableAccountResult {
   accountId: string;
   backupId?: string;
+}
+
+/** SkillScope: kebab-case */
+export type SkillScope = "grok" | "claude" | "cc-switch";
+
+export interface SkillInfo {
+  name: string;
+  description: string;
+  path: string;
+  skillMdPath: string;
+  scope: SkillScope;
+  isSymlink: boolean;
+  linkTarget?: string;
+  hasSkillMd: boolean;
+  editable: boolean;
+}
+
+export interface SkillDetail {
+  info: SkillInfo;
+  content: string;
+}
+
+export interface SkillDraft {
+  name: string;
+  description: string;
+  content: string;
 }
 
 export type ApiResult<T> = {

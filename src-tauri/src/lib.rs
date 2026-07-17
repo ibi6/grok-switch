@@ -203,6 +203,11 @@ pub fn run() {
             commands::list_backups,
             commands::restore_backup,
             commands::open_grok_terminal,
+            commands::list_skills,
+            commands::get_skill,
+            commands::upsert_skill,
+            commands::delete_skill,
+            commands::import_skills,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Grok Switch");

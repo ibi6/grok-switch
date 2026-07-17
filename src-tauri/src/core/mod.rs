@@ -12,6 +12,7 @@ pub mod normalize;
 pub mod paths;
 pub mod provider_store;
 pub mod settings_store;
+pub mod skill_store;
 pub mod terminal;
 pub mod types;
 

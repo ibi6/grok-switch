@@ -12,6 +12,9 @@ import type {
   Provider,
   ProviderDraft,
   Settings,
+  SkillDetail,
+  SkillDraft,
+  SkillInfo,
 } from "./types";
 
 export type { ApiResult } from "./types";
@@ -158,6 +161,37 @@ const mockImportCandidates: ImportCandidate[] = [
     suggestedBackend: "messages",
   },
 ];
+
+let mockSkills: SkillInfo[] = [
+  {
+    name: "check-work",
+    description: "Verify changes with a subagent",
+    path: "C:\\Users\\dev\\.grok\\skills\\check-work",
+    skillMdPath: "C:\\Users\\dev\\.grok\\skills\\check-work\\SKILL.md",
+    scope: "grok",
+    isSymlink: false,
+    hasSkillMd: true,
+    editable: true,
+  },
+  {
+    name: "brainstorming",
+    description: "Explore requirements before implementation",
+    path: "C:\\Users\\dev\\.grok\\skills\\brainstorming",
+    skillMdPath: "C:\\Users\\dev\\.grok\\skills\\brainstorming\\SKILL.md",
+    scope: "grok",
+    isSymlink: true,
+    linkTarget: "C:\\Users\\dev\\.codeg\\skills\\brainstorming",
+    hasSkillMd: true,
+    editable: false,
+  },
+];
+
+const mockSkillContents: Record<string, string> = {
+  "check-work":
+    "---\nname: check-work\ndescription: Verify changes with a subagent\n---\n\n# Check work\n\nRun verification steps.\n",
+  brainstorming:
+    "---\nname: brainstorming\ndescription: Explore requirements before implementation\n---\n\n# Brainstorm\n",
+};
 
 function ok<T>(data: T): ApiResult<T> {
   return { ok: true, data };
@@ -450,6 +484,72 @@ async function mockInvoke<T>(
       return ok(cmd) as ApiResult<T>;
     }
 
+    case "list_skills":
+      return ok(mockSkills.map((s) => ({ ...s }))) as ApiResult<T>;
+
+    case "get_skill": {
+      const name = String(args?.name ?? "");
+      const info = mockSkills.find((s) => s.name === name);
+      if (!info) return err(`skill not found: ${name}`) as ApiResult<T>;
+      return ok({
+        info: { ...info },
+        content:
+          mockSkillContents[name] ??
+          `---\nname: ${name}\ndescription: ${info.description}\n---\n\n# ${name}\n`,
+      } satisfies SkillDetail) as ApiResult<T>;
+    }
+
+    case "upsert_skill": {
+      const draft = args?.draft as SkillDraft;
+      if (!draft?.name) return err("skill name required") as ApiResult<T>;
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(draft.name) || draft.name.length < 2) {
+        return err("invalid skill name") as ApiResult<T>;
+      }
+      const content = `---\nname: ${draft.name}\ndescription: ${draft.description}\n---\n\n${draft.content.replace(/^---[\s\S]*?---\s*/, "")}\n`;
+      mockSkillContents[draft.name] = content;
+      const info: SkillInfo = {
+        name: draft.name,
+        description: draft.description,
+        path: `C:\\Users\\dev\\.grok\\skills\\${draft.name}`,
+        skillMdPath: `C:\\Users\\dev\\.grok\\skills\\${draft.name}\\SKILL.md`,
+        scope: "grok",
+        isSymlink: false,
+        hasSkillMd: true,
+        editable: true,
+      };
+      const idx = mockSkills.findIndex((s) => s.name === draft.name);
+      if (idx >= 0) mockSkills[idx] = info;
+      else mockSkills = [...mockSkills, info];
+      return ok({ info, content } satisfies SkillDetail) as ApiResult<T>;
+    }
+
+    case "delete_skill": {
+      const name = String(args?.name ?? "");
+      const before = mockSkills.length;
+      mockSkills = mockSkills.filter((s) => s.name !== name);
+      delete mockSkillContents[name];
+      return ok(before !== mockSkills.length) as ApiResult<T>;
+    }
+
+    case "import_skills": {
+      const imported: SkillInfo[] = [
+        {
+          name: "imported-demo",
+          description: "Imported from CC Switch (mock)",
+          path: "C:\\Users\\dev\\.grok\\skills\\imported-demo",
+          skillMdPath: "C:\\Users\\dev\\.grok\\skills\\imported-demo\\SKILL.md",
+          scope: "grok",
+          isSymlink: false,
+          hasSkillMd: true,
+          editable: true,
+        },
+      ];
+      for (const s of imported) {
+        if (!mockSkills.some((x) => x.name === s.name)) mockSkills.push(s);
+      }
+      return ok(imported) as ApiResult<T>;
+    }
+
     default:
       return err(`unknown mock command: ${cmd}`) as ApiResult<T>;
   }
@@ -548,6 +648,26 @@ export function openGrokTerminal(model?: string | null) {
   return call<string>("open_grok_terminal", {
     model: model && model.trim() ? model.trim() : null,
   });
+}
+
+export function listSkills() {
+  return call<SkillInfo[]>("list_skills");
+}
+
+export function getSkill(name: string) {
+  return call<SkillDetail>("get_skill", { name });
+}
+
+export function upsertSkill(draft: SkillDraft) {
+  return call<SkillDetail>("upsert_skill", { draft });
+}
+
+export function deleteSkill(name: string) {
+  return call<boolean>("delete_skill", { name });
+}
+
+export function importSkills(names: string[] = [], source: "cc-switch" | "claude" = "cc-switch") {
+  return call<SkillInfo[]>("import_skills", { names, source });
 }
 
 /** True when running inside a Tauri webview. */

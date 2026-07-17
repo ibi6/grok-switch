@@ -11,6 +11,7 @@ use crate::core::health::{self, HealthResult};
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
+use crate::core::skill_store::{self, SkillDetail, SkillDraft, SkillInfo, SkillScope};
 use crate::core::terminal;
 use crate::core::types::{
     Account, AccountStatus, Activity, ActivityType, ApiBackend, AppMode, Provider, Settings,
@@ -662,6 +663,77 @@ pub fn open_grok_terminal(
         &state.paths,
         model.as_deref(),
     ))
+}
+
+#[tauri::command]
+pub fn list_skills(state: State<'_, AppState>) -> ApiResult<Vec<SkillInfo>> {
+    ApiResult::from_result(skill_store::list_skills(&state.paths))
+}
+
+#[tauri::command]
+pub fn get_skill(state: State<'_, AppState>, name: String) -> ApiResult<SkillDetail> {
+    ApiResult::from_result(skill_store::get_skill(&state.paths, &name))
+}
+
+#[tauri::command]
+pub fn upsert_skill(state: State<'_, AppState>, draft: SkillDraft) -> ApiResult<SkillDetail> {
+    match skill_store::upsert_skill(&state.paths, &draft) {
+        Ok(detail) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Skill,
+                &format!("Saved skill {}", detail.info.name),
+                Some(HashMap::from([("skill".into(), detail.info.name.clone())])),
+            );
+            ApiResult::ok(detail)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn delete_skill(state: State<'_, AppState>, name: String) -> ApiResult<bool> {
+    match skill_store::delete_skill(&state.paths, &name) {
+        Ok(removed) => {
+            if removed {
+                log_activity(
+                    &state.paths,
+                    ActivityType::Skill,
+                    &format!("Deleted skill {name}"),
+                    Some(HashMap::from([("skill".into(), name)])),
+                );
+            }
+            ApiResult::ok(removed)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn import_skills(
+    state: State<'_, AppState>,
+    names: Vec<String>,
+    source: Option<String>,
+) -> ApiResult<Vec<SkillInfo>> {
+    let scope = match source.as_deref().unwrap_or("cc-switch") {
+        "claude" => SkillScope::Claude,
+        "cc-switch" | "ccswitch" => SkillScope::CcSwitch,
+        other => {
+            return ApiResult::err(format!("unknown skill import source: {other}"));
+        }
+    };
+    match skill_store::import_skills(&state.paths, &names, scope) {
+        Ok(items) => {
+            log_activity(
+                &state.paths,
+                ActivityType::Skill,
+                &format!("Imported {} skill(s) from {scope:?}", items.len()),
+                Some(HashMap::from([("count".into(), items.len().to_string())])),
+            );
+            ApiResult::ok(items)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────

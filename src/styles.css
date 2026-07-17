@@ -1582,12 +1582,130 @@ button.provider-card {
 }
 
 .settings-card,
-.import-card {
+.import-card,
+.card-like {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
+}
+
+/* ── Skills page ─────────────────────────────────────────────────────────── */
+
+.skills-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(340px, 1.15fr);
+  gap: 16px;
+  align-items: start;
+  min-height: 0;
+}
+
+.skills-list-pane {
+  min-width: 0;
+  max-height: calc(100vh - 200px);
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.skills-editor-pane {
+  min-width: 0;
+  position: sticky;
+  top: 8px;
+}
+
+.skills-editor {
+  padding: 18px 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.skills-editor-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skills-editor-head b {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.skills-editor .sheet-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skills-editor .sheet-field > span {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.skills-editor .sheet-field input,
+.skills-editor .sheet-field textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2, var(--bg));
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.skills-editor .sheet-field input:focus,
+.skills-editor .sheet-field textarea:focus {
+  border-color: color-mix(in srgb, var(--accent, #7c6cff) 55%, var(--border));
+  box-shadow: 0 0 0 3px var(--accent-soft, rgba(124, 108, 255, 0.18));
+}
+
+.skills-body {
+  resize: vertical;
+  min-height: 240px;
+  line-height: 1.5;
+  font-family: var(--mono);
+  font-size: 12.5px !important;
+}
+
+.skills-desc {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+.skills-preview {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, var(--bg));
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+@media (max-width: 960px) {
+  .skills-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .skills-list-pane {
+    max-height: none;
+  }
+
+  .skills-editor-pane {
+    position: static;
+  }
 }
 
 .setting-row {

@@ -16,7 +16,11 @@ pub struct Paths {
     pub activity_jsonl: PathBuf,
     pub accounts_dir: PathBuf,
     pub backups_dir: PathBuf,
+    pub skill_backups_dir: PathBuf,
+    pub grok_skills_dir: PathBuf,
     pub ccswitch_db: PathBuf,
+    pub ccswitch_skills_dir: PathBuf,
+    pub claude_skills_dir: PathBuf,
 }
 
 impl Paths {
@@ -44,7 +48,11 @@ impl Paths {
             activity_jsonl: app_home.join("activity.jsonl"),
             accounts_dir: app_home.join("accounts"),
             backups_dir: app_home.join("backups"),
+            skill_backups_dir: app_home.join("skill-backups"),
+            grok_skills_dir: grok_home.join("skills"),
             ccswitch_db: home.join(".cc-switch").join("cc-switch.db"),
+            ccswitch_skills_dir: home.join(".cc-switch").join("skills"),
+            claude_skills_dir: home.join(".claude").join("skills"),
         }
     }
 
@@ -53,7 +61,18 @@ impl Paths {
         fs::create_dir_all(&self.app_home)?;
         fs::create_dir_all(&self.accounts_dir)?;
         fs::create_dir_all(&self.backups_dir)?;
+        fs::create_dir_all(&self.skill_backups_dir)?;
         Ok(())
+    }
+
+    /// Directory for a managed Grok user skill: `~/.grok/skills/<name>/`.
+    pub fn skill_dir(&self, name: &str) -> PathBuf {
+        self.grok_skills_dir.join(name)
+    }
+
+    /// Path to a skill's SKILL.md.
+    pub fn skill_md(&self, name: &str) -> PathBuf {
+        self.skill_dir(name).join("SKILL.md")
     }
 
     /// Override Grok home / config / auth paths from settings (if non-empty).
@@ -160,9 +179,19 @@ mod tests {
         assert_eq!(p.accounts_dir, root.join(".grok-switch").join("accounts"));
         assert_eq!(p.backups_dir, root.join(".grok-switch").join("backups"));
         assert_eq!(
+            p.skill_backups_dir,
+            root.join(".grok-switch").join("skill-backups")
+        );
+        assert_eq!(p.grok_skills_dir, root.join(".grok").join("skills"));
+        assert_eq!(
             p.ccswitch_db,
             root.join(".cc-switch").join("cc-switch.db")
         );
+        assert_eq!(
+            p.ccswitch_skills_dir,
+            root.join(".cc-switch").join("skills")
+        );
+        assert_eq!(p.claude_skills_dir, root.join(".claude").join("skills"));
     }
 
     #[test]

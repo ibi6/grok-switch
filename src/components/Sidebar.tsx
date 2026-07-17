@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Server,
   Settings2,
+  Sparkles,
   UserRound,
 } from "lucide-react";
 import type { Account, CliStatus, Provider, Settings } from "../lib/types";
@@ -14,6 +15,7 @@ export type PageId =
   | "providers"
   | "accounts"
   | "import"
+  | "skills"
   | "activity"
   | "settings";
 
@@ -22,6 +24,7 @@ const NAV: { id: PageId; label: string; Icon: typeof LayoutDashboard }[] = [
   { id: "providers", label: "供应商", Icon: Server },
   { id: "accounts", label: "官方账号", Icon: UserRound },
   { id: "import", label: "导入", Icon: Download },
+  { id: "skills", label: "Skills", Icon: Sparkles },
   { id: "activity", label: "日志备份", Icon: Activity },
   { id: "settings", label: "设置", Icon: Settings2 },
 ];
