@@ -24,10 +24,14 @@ use crate::core::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
-use std::process::Command;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
+
+const MAX_MCP_COMMAND_LEN: usize = 256;
+const MAX_MCP_ARGS: usize = 128;
+const MAX_MCP_ARG_LEN: usize = 4096;
+const MAX_MCP_ARGS_BYTES: usize = 64 * 1024;
 
 /// One MCP server entry as shown in the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -157,7 +161,12 @@ pub fn upsert_mcp_server(paths: &Paths, draft: &McpDraft) -> Result<McpServer, A
     ensure_mcp_root(&mut doc);
 
     let mut table = Table::new();
-    if let Some(cmd) = draft.command.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(cmd) = draft
+        .command
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         table["command"] = value(cmd);
     }
     if !draft.args.is_empty() {
@@ -167,7 +176,12 @@ pub fn upsert_mcp_server(paths: &Paths, draft: &McpDraft) -> Result<McpServer, A
         }
         table["args"] = Item::Value(Value::Array(arr));
     }
-    if let Some(url) = draft.url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+    if let Some(url) = draft
+        .url
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
         table["url"] = value(url);
     }
     if !draft.env.is_empty() {
@@ -195,7 +209,10 @@ pub fn delete_mcp_server(paths: &Paths, name: &str) -> Result<bool, AppError> {
     let name = validate_mcp_name(name)?;
     let text = read_config_text(paths)?;
     let mut doc = parse_doc(&text)?;
-    let Some(servers) = doc.get_mut("mcp_servers").and_then(|i| i.as_table_like_mut()) else {
+    let Some(servers) = doc
+        .get_mut("mcp_servers")
+        .and_then(|i| i.as_table_like_mut())
+    else {
         return Ok(false);
     };
     let removed = servers.remove(&name).is_some();
@@ -278,6 +295,35 @@ fn validate_draft(draft: &McpDraft) -> Result<(), AppError> {
         return Err(AppError::Invalid(
             "MCP server needs either command (stdio) or url (http)".into(),
         ));
+    }
+    if !has_cmd && !draft.args.is_empty() {
+        return Err(AppError::Invalid(
+            "MCP args are only valid for a stdio command".into(),
+        ));
+    }
+    if has_cmd {
+        validate_stdio_command(draft.command.as_deref().unwrap_or(""))?;
+    }
+    if draft.args.len() > MAX_MCP_ARGS {
+        return Err(AppError::Invalid(format!(
+            "MCP stdio args must contain at most {MAX_MCP_ARGS} items"
+        )));
+    }
+    let mut args_bytes = 0usize;
+    for arg in &draft.args {
+        if arg.len() > MAX_MCP_ARG_LEN || arg.bytes().any(|b| b == 0 || b.is_ascii_control()) {
+            return Err(AppError::Invalid(format!(
+                "MCP stdio arguments must be at most {MAX_MCP_ARG_LEN} bytes and contain no control characters"
+            )));
+        }
+        args_bytes = args_bytes
+            .checked_add(arg.len())
+            .ok_or_else(|| AppError::Invalid("MCP stdio arguments are too large".into()))?;
+    }
+    if args_bytes > MAX_MCP_ARGS_BYTES {
+        return Err(AppError::Invalid(format!(
+            "MCP stdio arguments must total at most {MAX_MCP_ARGS_BYTES} bytes"
+        )));
     }
     if has_url {
         let u = draft.url.as_ref().unwrap().trim();
@@ -429,6 +475,7 @@ fn check_stdio(command: &str) -> Result<String, String> {
     if cmd.is_empty() {
         return Err("command is empty".into());
     }
+    validate_stdio_command(cmd).map_err(|error| error.to_string())?;
     // Absolute / relative path that exists.
     if Path::new(cmd).is_file() {
         return Ok(format!("command file exists: {cmd}"));
@@ -449,7 +496,7 @@ fn check_stdio(command: &str) -> Result<String, String> {
     }
     #[cfg(not(windows))]
     {
-        let out = Command::new("sh").arg("-c").arg(format!("command -v {cmd}")).output();
+        let out = Command::new("which").arg(cmd).output();
         // Only use if cmd is simple token — we already whitelist names but command path may have spaces.
         if let Ok(o) = out {
             if o.status.success() {
@@ -459,6 +506,23 @@ fn check_stdio(command: &str) -> Result<String, String> {
         }
     }
     Err(format!("command not found: {cmd}"))
+}
+
+fn validate_stdio_command(command: &str) -> Result<(), AppError> {
+    if command.is_empty() || command.len() > MAX_MCP_COMMAND_LEN {
+        return Err(AppError::Invalid(format!(
+            "MCP command must be 1–{MAX_MCP_COMMAND_LEN} bytes"
+        )));
+    }
+    if !command
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-' | b'/' | b'\\' | b':'))
+    {
+        return Err(AppError::Invalid(
+            "MCP command must be a single executable token".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn check_http(url: &str) -> Result<String, String> {
@@ -472,7 +536,10 @@ fn check_http(url: &str) -> Result<String, String> {
         .build()
         .map_err(|e| format!("client: {e}"))?;
     // Prefer GET — many MCP HTTP endpoints reject HEAD.
-    let resp = client.get(url).send().map_err(|e| format!("request: {e}"))?;
+    let resp = client
+        .get(url)
+        .send()
+        .map_err(|e| format!("request: {e}"))?;
     let status = resp.status();
     // Any HTTP response (even 4xx) means the endpoint is reachable.
     if status.as_u16() < 500 {
@@ -513,6 +580,29 @@ mod tests {
         assert!(validate_mcp_name("a b").is_err());
         assert!(validate_mcp_name("../x").is_err());
         assert!(validate_mcp_name("-bad").is_err());
+    }
+
+    #[test]
+    fn rejects_shell_syntax_and_embedded_arguments_in_command() {
+        assert!(validate_stdio_command("npx; touch /tmp/pwned").is_err());
+        assert!(validate_stdio_command("npx --help").is_err());
+        assert!(check_stdio("npx; touch /tmp/pwned").is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_stdio_arguments() {
+        let draft = McpDraft {
+            name: "safe-server".into(),
+            command: Some("npx".into()),
+            args: vec!["x".repeat(MAX_MCP_ARG_LEN + 1)],
+            url: None,
+            env: HashMap::new(),
+            headers: HashMap::new(),
+            enabled: true,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        };
+        assert!(validate_draft(&draft).is_err());
     }
 
     #[test]

@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+const MAX_SKILL_COPY_DEPTH: usize = 16;
+const MAX_SKILL_COPY_FILES: usize = 10_000;
+const MAX_SKILL_COPY_BYTES: u64 = 32 * 1024 * 1024;
+
 /// Source location of a discovered skill.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -124,14 +128,8 @@ pub fn get_skill(paths: &Paths, name: &str) -> Result<SkillDetail, AppError> {
     let name = validate_skill_name(name)?;
     let candidates = [
         (paths.skill_dir(&name), SkillScope::Grok),
-        (
-            paths.claude_skills_dir.join(&name),
-            SkillScope::Claude,
-        ),
-        (
-            paths.ccswitch_skills_dir.join(&name),
-            SkillScope::CcSwitch,
-        ),
+        (paths.claude_skills_dir.join(&name), SkillScope::Claude),
+        (paths.ccswitch_skills_dir.join(&name), SkillScope::CcSwitch),
     ];
     for (dir, scope) in candidates {
         if dir.exists() {
@@ -194,9 +192,7 @@ pub fn delete_skill(paths: &Paths, name: &str) -> Result<bool, AppError> {
     // Backup then remove.
     paths.ensure_app_dirs()?;
     let stamp = Local::now().format("%Y%m%d_%H%M%S");
-    let backup = paths
-        .skill_backups_dir
-        .join(format!("{stamp}_{name}"));
+    let backup = paths.skill_backups_dir.join(format!("{stamp}_{name}"));
     copy_dir_recursive(&dir, &backup)?;
     fs::remove_dir_all(&dir)?;
     Ok(true)
@@ -242,7 +238,13 @@ pub fn import_skills(
     for entry in fs::read_dir(src_root)? {
         let entry = entry?;
         let ft = entry.file_type()?;
-        if !ft.is_dir() && !ft.is_symlink() {
+        if ft.is_symlink() || is_reparse_point(&entry.path()) {
+            return Err(AppError::Invalid(format!(
+                "skill import contains a symlink or junction: {}",
+                entry.path().display()
+            )));
+        }
+        if !ft.is_dir() {
             continue;
         }
         let name = entry.file_name().to_string_lossy().to_string();
@@ -265,7 +267,10 @@ pub fn import_skills(
             continue;
         }
         fs::create_dir_all(&paths.grok_skills_dir)?;
-        copy_dir_recursive(&src, &dest)?;
+        if let Err(error) = copy_dir_recursive(&src, &dest) {
+            let _ = fs::remove_dir_all(&dest);
+            return Err(error);
+        }
         if let Ok(info) = skill_info_from_dir(&dest, SkillScope::Grok) {
             imported.push(info);
         }
@@ -404,34 +409,96 @@ fn strip_frontmatter(content: &str) -> String {
     let rest = &trimmed[3..];
     if let Some(idx) = rest.find("\n---") {
         let after = &rest[idx + 4..];
-        return after.trim_start_matches('\r').trim_start_matches('\n').to_string();
+        return after
+            .trim_start_matches('\r')
+            .trim_start_matches('\n')
+            .to_string();
     }
     content.to_string()
 }
 
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<(), AppError> {
+    let mut limits = CopyLimits { files: 0, bytes: 0 };
+    copy_dir_recursive_inner(src, dest, 0, &mut limits)
+}
+
+fn is_reparse_point(path: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        return fs::symlink_metadata(path)
+            .map(|metadata| metadata.file_attributes() & 0x400 != 0)
+            .unwrap_or(false);
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        false
+    }
+}
+
+struct CopyLimits {
+    files: usize,
+    bytes: u64,
+}
+
+fn copy_dir_recursive_inner(
+    src: &Path,
+    dest: &Path,
+    depth: usize,
+    limits: &mut CopyLimits,
+) -> Result<(), AppError> {
+    if depth > MAX_SKILL_COPY_DEPTH {
+        return Err(AppError::Invalid(format!(
+            "skill package exceeds maximum recursion depth of {MAX_SKILL_COPY_DEPTH}"
+        )));
+    }
+    let source_meta = fs::symlink_metadata(src)?;
+    if source_meta.file_type().is_symlink() || is_reparse_point(src) || !source_meta.is_dir() {
+        return Err(AppError::Invalid(format!(
+            "skill package contains a symlink, junction, or non-directory root: {}",
+            src.display()
+        )));
+    }
     fs::create_dir_all(dest)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
         let ty = entry.file_type()?;
         let to = dest.join(entry.file_name());
+        if ty.is_symlink() || is_reparse_point(&entry.path()) {
+            return Err(AppError::Invalid(format!(
+                "skill package contains a symlink or junction: {}",
+                entry.path().display()
+            )));
+        }
         if ty.is_dir() {
-            copy_dir_recursive(&entry.path(), &to)?;
-        } else if ty.is_symlink() {
-            // Copy the link as a real file/dir by following it once.
-            let target = fs::read_link(entry.path())?;
-            let resolved = if target.is_absolute() {
-                target
-            } else {
-                entry.path().parent().unwrap_or(src).join(target)
-            };
-            if resolved.is_dir() {
-                copy_dir_recursive(&resolved, &to)?;
-            } else if resolved.is_file() {
-                fs::copy(&resolved, &to)?;
+            copy_dir_recursive_inner(&entry.path(), &to, depth + 1, limits)?;
+        } else if ty.is_file() {
+            let size = fs::symlink_metadata(entry.path())?.len();
+            limits.files = limits
+                .files
+                .checked_add(1)
+                .ok_or_else(|| AppError::Invalid("skill package contains too many files".into()))?;
+            if limits.files > MAX_SKILL_COPY_FILES {
+                return Err(AppError::Invalid(format!(
+                    "skill package exceeds maximum file count of {MAX_SKILL_COPY_FILES}"
+                )));
             }
-        } else {
+            limits.bytes = limits
+                .bytes
+                .checked_add(size)
+                .ok_or_else(|| AppError::Invalid("skill package is too large".into()))?;
+            if limits.bytes > MAX_SKILL_COPY_BYTES {
+                return Err(AppError::Invalid(format!(
+                    "skill package exceeds maximum size of {MAX_SKILL_COPY_BYTES} bytes"
+                )));
+            }
             fs::copy(entry.path(), &to)?;
+        } else {
+            return Err(AppError::Invalid(format!(
+                "skill package contains an unsupported filesystem entry: {}",
+                entry.path().display()
+            )));
         }
     }
     Ok(())
@@ -475,7 +542,12 @@ mod tests {
     #[test]
     fn list_and_get_roundtrip() {
         let (_tmp, paths) = setup();
-        write_skill(&paths.grok_skills_dir, "demo-skill", "Does demo things", "# Demo");
+        write_skill(
+            &paths.grok_skills_dir,
+            "demo-skill",
+            "Does demo things",
+            "# Demo",
+        );
 
         let list = list_skills(&paths).unwrap();
         assert_eq!(list.len(), 1);
@@ -525,7 +597,10 @@ mod tests {
             .filter_map(|e| e.ok())
             .collect();
         assert_eq!(backups.len(), 1);
-        assert!(backups[0].file_name().to_string_lossy().contains("todelete"));
+        assert!(backups[0]
+            .file_name()
+            .to_string_lossy()
+            .contains("todelete"));
         assert!(!delete_skill(&paths, "todelete").unwrap());
     }
 
@@ -566,5 +641,43 @@ mod tests {
         assert!(validate_skill_name("../etc").is_err());
         assert!(validate_skill_name("a/b").is_err());
         assert!(validate_skill_name("a\\b").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_symlinked_skill_content() {
+        use std::os::unix::fs::symlink;
+
+        let (_tmp, paths) = setup();
+        fs::create_dir_all(&paths.ccswitch_skills_dir).unwrap();
+        let outside = paths
+            .ccswitch_skills_dir
+            .parent()
+            .unwrap()
+            .join("outside.md");
+        fs::write(&outside, "secret").unwrap();
+        let source = paths.ccswitch_skills_dir.join("linked-skill");
+        fs::create_dir_all(&source).unwrap();
+        fs::write(
+            source.join("SKILL.md"),
+            "---\nname: linked-skill\ndescription: x\n---\n",
+        )
+        .unwrap();
+        symlink(&outside, source.join("secret.md")).unwrap();
+
+        assert!(import_skills(&paths, &[], SkillScope::CcSwitch).is_err());
+        assert!(!paths.skill_dir("linked-skill").exists());
+    }
+
+    #[test]
+    fn copy_rejects_excessive_recursion() {
+        let (_tmp, paths) = setup();
+        let source = paths.ccswitch_skills_dir.join("deep");
+        let mut current = source.clone();
+        for _ in 0..=MAX_SKILL_COPY_DEPTH + 1 {
+            fs::create_dir_all(&current).unwrap();
+            current = current.join("nested");
+        }
+        assert!(copy_dir_recursive(&source, &paths.skill_dir("deep")).is_err());
     }
 }

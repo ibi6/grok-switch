@@ -86,28 +86,68 @@ export function ActivityPage({
 }) {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
   const [loadingBackups, setLoadingBackups] = useState(true);
+  const [backupError, setBackupError] = useState<string | null>(null);
   const [restoring, setRestoring] = useState<string | null>(null);
   const [reqLogs, setReqLogs] = useState<RequestLog[]>([]);
   const [tokenStats, setTokenStats] = useState<TokenStats | null>(null);
+  const [loadingTelemetry, setLoadingTelemetry] = useState(true);
+  const [telemetryError, setTelemetryError] = useState<string | null>(null);
 
   const loadBackups = useCallback(async () => {
     setLoadingBackups(true);
     try {
       const res = await api.listBackups();
-      if (res.ok && res.data) setBackups(res.data);
-      else setBackups([]);
+      if (res.ok && res.data) {
+        setBackups(res.data);
+        setBackupError(null);
+      } else {
+        setBackupError(res.error ?? "加载备份列表失败");
+      }
+    } catch (error) {
+      setBackupError(error instanceof Error ? error.message : "加载备份列表失败");
     } finally {
       setLoadingBackups(false);
     }
   }, []);
 
   const loadProxyTelemetry = useCallback(async () => {
-    const [logs, stats] = await Promise.all([
+    setLoadingTelemetry(true);
+    const [logsResult, statsResult] = await Promise.allSettled([
       api.listRequestLogs(50),
       api.getTokenStats(),
     ]);
-    if (logs.ok && logs.data) setReqLogs(logs.data);
-    if (stats.ok && stats.data) setTokenStats(stats.data);
+    const errors: string[] = [];
+
+    if (logsResult.status === "fulfilled") {
+      if (logsResult.value.ok && logsResult.value.data) {
+        setReqLogs(logsResult.value.data);
+      } else {
+        errors.push(logsResult.value.error ?? "加载代理请求日志失败");
+      }
+    } else {
+      errors.push(
+        logsResult.reason instanceof Error
+          ? logsResult.reason.message
+          : "加载代理请求日志失败",
+      );
+    }
+
+    if (statsResult.status === "fulfilled") {
+      if (statsResult.value.ok && statsResult.value.data) {
+        setTokenStats(statsResult.value.data);
+      } else {
+        errors.push(statsResult.value.error ?? "加载 Token 统计失败");
+      }
+    } else {
+      errors.push(
+        statsResult.reason instanceof Error
+          ? statsResult.reason.message
+          : "加载 Token 统计失败",
+      );
+    }
+
+    setTelemetryError(errors.length > 0 ? errors.join("；") : null);
+    setLoadingTelemetry(false);
   }, []);
 
   useEffect(() => {
@@ -133,6 +173,8 @@ export function ActivityPage({
       notify(`已恢复备份 ${id}`);
       await onRestored();
       await loadBackups();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "恢复失败", "error");
     } finally {
       setRestoring(null);
     }
@@ -160,11 +202,69 @@ export function ActivityPage({
         </button>
       </div>
 
-      {loadingBackups ? (
+      {backupError && backups.length > 0 && (
+        <div className="empty-state" role="alert" style={{ marginBottom: 20 }}>
+          <AlertTriangle size={24} />
+          <b>备份列表刷新失败</b>
+          <p>{backupError}，以下仍显示上次成功加载的数据。</p>
+          <button type="button" className="ghost-btn" onClick={() => void loadBackups()}>
+            <RefreshCw size={15} /> 重试
+          </button>
+        </div>
+      )}
+
+      {loadingBackups && backups.length === 0 ? (
         <div className="empty-state" style={{ marginBottom: 20 }}>
           <LoaderCircle className="spin" size={22} />
           <b>加载备份列表…</b>
         </div>
+      ) : backupError && backups.length === 0 ? (
+        <>
+          <div className="empty-state" role="alert" style={{ marginBottom: 20 }}>
+            <AlertTriangle size={28} />
+            <b>备份列表加载失败</b>
+            <p>{backupError}</p>
+            <button type="button" className="ghost-btn" onClick={() => void loadBackups()}>
+              <RefreshCw size={15} /> 重试
+            </button>
+          </div>
+          {backups.length > 0 && (
+            <div className="provider-list" style={{ marginBottom: 24 }}>
+              {backups.map((b) => (
+                <div key={b.id} className="provider-card backup-card">
+                  <div className="provider-avatar" style={{ background: "linear-gradient(135deg,#7c6cff,#38bdf8)" }}>
+                    <Archive size={18} />
+                  </div>
+                  <div className="provider-body">
+                    <div className="provider-title-row">
+                      <b className="mono">{b.id}</b>
+                      {b.reason && <span className="badge badge-muted">{b.reason}</span>}
+                    </div>
+                    <div className="provider-meta">
+                      <span>{b.createdAt ? formatTs(b.createdAt) : b.meta?.createdAt ? formatTs(b.meta.createdAt) : "—"}</span>
+                      {b.meta?.extra?.mode && <span>模式 {b.meta.extra.mode}</span>}
+                    </div>
+                  </div>
+                  <div className="provider-actions">
+                    <button
+                      type="button"
+                      className="ghost-btn"
+                      disabled={!!restoring}
+                      onClick={() => void onRestore(b.id)}
+                    >
+                      {restoring === b.id ? (
+                        <LoaderCircle className="spin" size={14} />
+                      ) : (
+                        <RotateCcw size={14} />
+                      )}
+                      恢复
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       ) : backups.length === 0 ? (
         <div className="empty-state" style={{ marginBottom: 20 }}>
           <Archive size={28} style={{ opacity: 0.5 }} />
@@ -235,12 +335,29 @@ export function ActivityPage({
           type="button"
           className="ghost-btn"
           onClick={() => void loadProxyTelemetry()}
+          disabled={loadingTelemetry}
         >
-          <RefreshCw size={15} /> 刷新
+          {loadingTelemetry ? <LoaderCircle className="spin" size={15} /> : <RefreshCw size={15} />} 刷新
         </button>
       </div>
 
-      {tokenStats && (
+      {telemetryError && (
+        <div className="empty-state" role="alert" style={{ marginBottom: 16 }}>
+          <AlertTriangle size={24} />
+          <b>代理遥测加载失败</b>
+          <p>{telemetryError}</p>
+          <button type="button" className="ghost-btn" onClick={() => void loadProxyTelemetry()} disabled={loadingTelemetry}>
+            <RefreshCw size={15} /> 重试
+          </button>
+        </div>
+      )}
+
+      {loadingTelemetry && !tokenStats && reqLogs.length === 0 ? (
+        <div className="empty-state" style={{ marginBottom: 20 }}>
+          <LoaderCircle className="spin" size={22} />
+          <b>加载代理遥测…</b>
+        </div>
+      ) : tokenStats ? (
         <div className="stats-row" style={{ marginBottom: 16 }}>
           <div className="stat-card">
             <small>请求数</small>
@@ -260,14 +377,9 @@ export function ActivityPage({
             <span>输出侧累计</span>
           </div>
         </div>
-      )}
+      ) : null}
 
-      {reqLogs.length === 0 ? (
-        <div className="empty-state" style={{ marginBottom: 20 }}>
-          <b>暂无代理请求</b>
-          <p>在设置中启动本地代理，并将 Grok base_url 指向它后会出现日志。</p>
-        </div>
-      ) : (
+      {reqLogs.length > 0 ? (
         <div className="activity-list full" style={{ marginBottom: 24 }}>
           {reqLogs.map((l) => (
             <div className="activity-row" key={l.id}>
@@ -288,7 +400,12 @@ export function ActivityPage({
             </div>
           ))}
         </div>
-      )}
+      ) : !loadingTelemetry && !telemetryError ? (
+        <div className="empty-state" style={{ marginBottom: 20 }}>
+          <b>暂无代理请求</b>
+          <p>在设置中启动本地代理，并将 Grok base_url 指向它后会出现日志。</p>
+        </div>
+      ) : null}
 
       <div className="section-head">
         <div>

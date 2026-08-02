@@ -79,6 +79,7 @@ export default function App() {
   const [cli, setCli] = useState<CliStatus | null>(null);
   const [proxyRunning, setProxyRunning] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [toast, setToast] = useState({ message: "", tone: "ok" as ToastTone });
   const [switching, setSwitching] = useState(false);
   const [switchCopy, setSwitchCopy] = useState({
@@ -110,33 +111,63 @@ export default function App() {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [s, p, a, act, c, px] = await Promise.all([
-      api.getSettings(),
-      api.listProviders(),
-      api.listAccounts(),
-      api.listActivity(50),
-      api.getCliStatus(),
-      api.getProxyStatus(),
-    ]);
+    const results = await Promise.allSettled([
+      Promise.resolve().then(() => api.getSettings()),
+      Promise.resolve().then(() => api.listProviders()),
+      Promise.resolve().then(() => api.listAccounts()),
+      Promise.resolve().then(() => api.listActivity(50)),
+      Promise.resolve().then(() => api.getCliStatus()),
+      Promise.resolve().then(() => api.getProxyStatus()),
+    ] as const);
 
-    if (s.ok && s.data) {
-      setSettings(s.data);
-      applyDocumentTheme(s.data.theme);
-    } else if (!s.ok) notify(s.error ?? "加载设置失败", "error");
+    const errors: string[] = [];
+    const readResult = <T,>(
+      result: PromiseSettledResult<{ ok: boolean; data?: T; error?: string }>,
+      label: string,
+    ): T | undefined => {
+      if (result.status === "rejected") {
+        errors.push(
+          label + "：" +
+            (result.reason instanceof Error ? result.reason.message : String(result.reason)),
+        );
+        return undefined;
+      }
+      if (!result.value.ok || result.value.data === undefined) {
+        errors.push(label + "：" + (result.value.error ?? "返回数据为空"));
+        return undefined;
+      }
+      return result.value.data;
+    };
 
-    if (p.ok && p.data) setProviders(p.data);
-    if (a.ok && a.data) setAccounts(a.data);
-    if (act.ok && act.data) setActivity(act.data);
-    if (c.ok && c.data) setCli(c.data);
-    if (px.ok && px.data) setProxyRunning(px.data.running);
-  }, [notify]);
+    const s = readResult<Settings>(results[0], "设置");
+    const p = readResult<Provider[]>(results[1], "供应商");
+    const a = readResult<Account[]>(results[2], "账号");
+    const act = readResult<Activity[]>(results[3], "操作日志");
+    const c = readResult<CliStatus>(results[4], "CLI 状态");
+    const px = readResult<{ running: boolean }>(results[5], "代理状态");
+
+    if (s) {
+      setSettings(s);
+      applyDocumentTheme(s.theme);
+    }
+
+    if (p) setProviders(p);
+    if (a) setAccounts(a);
+    if (act) setActivity(act);
+    if (c) setCli(c);
+    if (px) setProxyRunning(px.running);
+    setLoadError(errors.length > 0 ? errors.join("；") : null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await refresh();
-      if (!cancelled) setLoading(false);
+      try {
+        await refresh();
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -272,8 +303,10 @@ export default function App() {
         setPage("settings");
       } else if (e.key.toLowerCase() === "r") {
         e.preventDefault();
-        void refresh();
-        notify("已刷新");
+        void (async () => {
+          await refresh();
+          notify("已刷新");
+        })();
       } else if (e.key.toLowerCase() === "t" && hasCurrent) {
         e.preventDefault();
         void openGrokTerminal();
@@ -399,8 +432,30 @@ export default function App() {
               <b>加载中…</b>
               <p>正在读取本机设置、供应商与 CLI 状态。</p>
             </div>
+          ) : loadError &&
+            settings === null &&
+            providers.length === 0 &&
+            accounts.length === 0 &&
+            activity.length === 0 &&
+            cli === null ? (
+            <div className="empty-state" role="alert">
+              <b>初始化失败</b>
+              <p>{loadError}</p>
+              <button type="button" className="ghost-btn" onClick={() => void refresh()}>
+                <RefreshCw size={15} /> 重试
+              </button>
+            </div>
           ) : (
             <>
+              {loadError && (
+                <div className="empty-state" role="alert" style={{ marginBottom: 20 }}>
+                  <b>部分数据加载失败</b>
+                  <p>{loadError}</p>
+                  <button type="button" className="ghost-btn" onClick={() => void refresh()}>
+                    <RefreshCw size={15} /> 重试
+                  </button>
+                </div>
+              )}
               {page === "overview" && (
                 <OverviewPage
                   settings={settings}
