@@ -12,7 +12,6 @@ import {
   Zap,
 } from "lucide-react";
 import type { HealthResult, Provider, Settings } from "../lib/types";
-import { maskSecret } from "../lib/mask";
 import { backendLabel, modelFlag } from "../lib/providerUtils";
 import * as api from "../lib/api";
 import { ProviderForm } from "../components/ProviderForm";
@@ -495,7 +494,7 @@ export function ProvidersPage({
                     >
                       {modelFlag(p)}
                     </code>
-                    <span title="API Key">{maskSecret(p.apiKey)}</span>
+                    <span title="API Key">{p.apiKeyMasked || "***"}</span>
                     <span title="池权重">w{p.weight ?? 100}</span>
                   </div>
                 </div>

@@ -298,7 +298,7 @@ fn normalizes_base_url() {
 
 #[test]
 fn masks_key() {
-    let m = mask_secret("sk-demo-key-abcdefghijklmnop");
+    let m = mask_secret("demo-secret-placeholder");
     assert!(m.starts_with("sk-demo"));
     assert!(m.ends_with("hXR"));
     assert!(m.contains("..."));

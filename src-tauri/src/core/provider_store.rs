@@ -79,7 +79,7 @@ mod tests {
             id: id.into(),
             name: name.into(),
             base_url: "https://api.example.com/v1".into(),
-            api_key: "sk-test-key-abcdefghijklmnop".into(),
+            api_key: "store-secret-placeholder".into(),
             api_backend: ApiBackend::ChatCompletions,
             default_model_entry_id: "m1".into(),
             models: vec![],

@@ -24,9 +24,8 @@ mod tests {
 
     #[test]
     fn masks_key() {
-        let m = mask_secret("sk-demo-key-abcdefghijklmnop");
-        assert!(m.starts_with("sk-demo"));
-        assert!(m.ends_with("mnop"));
+        let m = mask_secret("mask-secret-abcdefghijklmnop");
+        assert_eq!(m, "mask-s...mnop");
         assert!(m.contains("..."));
         assert!(!m.contains("key-abcdefghi"));
     }

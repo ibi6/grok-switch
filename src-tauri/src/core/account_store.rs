@@ -100,7 +100,7 @@ mod tests {
         Account {
             id: id.into(),
             name: name.into(),
-            email: Some("u@example.com".into()),
+            email: Some("account-email-placeholder".into()),
             label_color: "#3b82f6".into(),
             status: AccountStatus::Ready,
             last_used_at: None,

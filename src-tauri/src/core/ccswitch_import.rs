@@ -1,4 +1,5 @@
 use crate::core::error::AppError;
+use crate::core::mask::mask_secret;
 use crate::core::normalize::{normalize_base_url, sanitize_model_name};
 use crate::core::types::{ApiBackend, ModelEntry, Provider, ProviderSource};
 use chrono::Local;
@@ -15,7 +16,10 @@ pub struct ImportCandidate {
     pub id: String,
     pub name: String,
     pub base_url: String,
+    /// Used only inside the Rust import flow; never serialized to the UI.
+    #[serde(skip_serializing, skip_deserializing)]
     pub api_key: String,
+    pub api_key_masked: String,
     pub default_model: String,
     pub website_url: Option<String>,
     /// Default for Claude-protocol imports.
@@ -124,6 +128,7 @@ fn parse_candidate(
         name,
         base_url: normalize_base_url(base, true),
         api_key: key.to_string(),
+        api_key_masked: mask_secret(key),
         default_model: sanitize_model_name(model_raw),
         website_url,
         suggested_backend: ApiBackend::Messages,
@@ -437,7 +442,7 @@ mod tests {
         let settings = r#"{
             "env": {
                 "ANTHROPIC_BASE_URL": "https://myallapi.example.com:8443/",
-                "ANTHROPIC_AUTH_TOKEN": "sk-test-key-123",
+                "ANTHROPIC_AUTH_TOKEN": "candidate-secret-placeholder",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL": "grok-4.5[1M]"
             }
         }"#;
@@ -474,10 +479,28 @@ mod tests {
         assert_eq!(c.id, "cc-1");
         assert_eq!(c.name, "MyAllAPI");
         assert_eq!(c.base_url, "https://myallapi.example.com:8443/v1");
-        assert_eq!(c.api_key, "sk-test-key-123");
+        assert_eq!(c.api_key, "candidate-secret-placeholder");
         assert_eq!(c.default_model, "grok-4.5"); // sanitize strips [1M]
         assert_eq!(c.website_url.as_deref(), Some("https://example.com"));
         assert_eq!(c.suggested_backend, ApiBackend::Messages);
+    }
+
+    #[test]
+    fn import_candidate_serialization_excludes_full_api_key() {
+        let conn = setup_memory_db();
+        let settings = r#"{
+            "env": {
+                "ANTHROPIC_BASE_URL": "https://api.example.com",
+                "ANTHROPIC_AUTH_TOKEN": "candidate-secret-placeholder"
+            }
+        }"#;
+        insert_provider(&conn, "cc-1", "Relay", settings, None, "claude");
+
+        let candidate = preview_from_connection(&conn).unwrap().remove(0);
+        let json = serde_json::to_string(&candidate).unwrap();
+
+        assert!(!json.contains(&candidate.api_key));
+        assert!(json.contains("apiKeyMasked"));
     }
 
     #[test]
@@ -527,7 +550,8 @@ mod tests {
             id: "cc-1".into(),
             name: "My All API".into(),
             base_url: "https://api.example.com/v1".into(),
-            api_key: "sk-abc".into(),
+            api_key: "candidate-secret-placeholder".into(),
+            api_key_masked: "***".into(),
             default_model: "grok-4.5".into(),
             website_url: Some("https://site.example".into()),
             suggested_backend: ApiBackend::Messages,
@@ -538,7 +562,7 @@ mod tests {
         assert!(!p.id.is_empty());
         assert_eq!(p.name, "My All API");
         assert_eq!(p.base_url, "https://api.example.com/v1");
-        assert_eq!(p.api_key, "sk-abc");
+        assert_eq!(p.api_key, "candidate-secret-placeholder");
         assert_eq!(p.api_backend, ApiBackend::Messages);
         assert_eq!(p.source, ProviderSource::CcSwitch);
         assert_eq!(p.context_window, 200_000);
@@ -563,6 +587,7 @@ mod tests {
                 name: "A".into(),
                 base_url: "https://api.example.com/v1".into(),
                 api_key: "same".into(),
+                api_key_masked: "***".into(),
                 default_model: "m".into(),
                 website_url: None,
                 suggested_backend: ApiBackend::Messages,
@@ -572,6 +597,7 @@ mod tests {
                 name: "B".into(),
                 base_url: "https://other.example.com/v1".into(),
                 api_key: "other".into(),
+                api_key_masked: "***".into(),
                 default_model: "m".into(),
                 website_url: None,
                 suggested_backend: ApiBackend::Messages,

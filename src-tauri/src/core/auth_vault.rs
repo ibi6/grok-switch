@@ -155,19 +155,19 @@ mod tests {
         fs::create_dir_all(&paths.grok_home).unwrap();
         fs::write(
             &paths.auth_json,
-            r#"{"email":"user@x.com","token":"secret"}"#,
+            r#"{"email":"account-email-placeholder","token":"token-placeholder"}"#,
         )
         .unwrap();
 
         let account = capture_auth(&paths, "acc1", "Work").unwrap();
         assert_eq!(account.id, "acc1");
         assert_eq!(account.name, "Work");
-        assert_eq!(account.email.as_deref(), Some("user@x.com"));
+        assert_eq!(account.email.as_deref(), Some("account-email-placeholder"));
         assert_eq!(account.status, AccountStatus::Ready);
         assert!(paths.account_auth("acc1").is_file());
         assert_eq!(
             fs::read_to_string(paths.account_auth("acc1")).unwrap(),
-            r#"{"email":"user@x.com","token":"secret"}"#
+            r#"{"email":"account-email-placeholder","token":"token-placeholder"}"#
         );
 
         let listed = list_accounts(&paths).unwrap();

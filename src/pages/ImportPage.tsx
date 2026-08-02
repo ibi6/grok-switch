@@ -7,7 +7,6 @@ import type {
   ImportCandidate,
   Provider,
 } from "../lib/types";
-import { maskSecret } from "../lib/mask";
 import * as api from "../lib/api";
 
 function backendLabel(b: ApiBackend): string {
@@ -164,6 +163,7 @@ export function ImportPage({
         if (want !== p.apiBackend) {
           const patched: Provider = {
             ...p,
+            apiKey: "",
             apiBackend: want,
             models: p.models.map((m) => ({ ...m, apiBackend: want })),
             updatedAt: Math.floor(Date.now() / 1000),
@@ -452,7 +452,7 @@ export function ImportPage({
                           <code>{c.baseUrl}</code>
                         </span>
                         <span>
-                          模型 {c.defaultModel} · Key {maskSecret(c.apiKey)}
+                          模型 {c.defaultModel} · Key {c.apiKeyMasked}
                         </span>
                       </div>
                       <select

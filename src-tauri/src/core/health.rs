@@ -236,7 +236,7 @@ mod tests {
 
     #[test]
     fn redacts_api_key_in_detail() {
-        let key = "sk-demo-key-abcdefghijklmnop";
+        let key = "health-secret-placeholder";
         let detail = format!("Authorization failed for key={key} status=401");
         let redacted = redact_secrets(&detail, key);
         assert!(!redacted.contains(key));
@@ -296,7 +296,7 @@ mod tests {
     fn network_check_provider_openai_style() {
         let result = check_provider(
             "https://api.openai.com/v1",
-            "sk-invalid-test-key-xxxxxxxx",
+            "health-invalid-secret-placeholder",
             ApiBackend::ChatCompletions,
             "gpt-4o-mini",
         );

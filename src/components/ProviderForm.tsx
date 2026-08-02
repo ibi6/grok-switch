@@ -104,7 +104,9 @@ function fromProvider(p?: Provider | null): ProviderFormValues {
   return {
     name: p.name,
     baseUrl: endsWithV1 ? p.baseUrl.replace(/\/v1$/i, "") : p.baseUrl,
-    apiKey: p.apiKey,
+    // The list response contains only a masked key. An empty edit value tells
+    // the backend to keep the stored credential.
+    apiKey: "",
     apiBackend: p.apiBackend,
     defaultModel: defaultEntry?.model ?? "",
     defaultDisplayName: defaultEntry?.name ?? defaultEntry?.model ?? "",
@@ -290,8 +292,17 @@ export function ProviderForm({
   };
 
   const persist = async (andEnable: boolean) => {
-    if (!values.name.trim() || !values.baseUrl.trim() || !values.apiKey.trim()) {
-      notify("供应商名称、请求地址和 API Key 为必填", "error");
+    if (
+      !values.name.trim() ||
+      !values.baseUrl.trim() ||
+      (!values.apiKey.trim() && !editing)
+    ) {
+      notify(
+        editing
+          ? "供应商名称和请求地址为必填；API Key 留空将保留原值"
+          : "供应商名称、请求地址和 API Key 为必填",
+        "error",
+      );
       return;
     }
     if (!values.defaultModel.trim()) {
@@ -477,8 +488,8 @@ export function ProviderForm({
                 type={revealKey ? "text" : "password"}
                 value={values.apiKey}
                 onChange={(e) => set("apiKey", e.target.value)}
-                placeholder="sk-..."
-                required
+                placeholder={editing ? "留空以保留已有 API Key" : "请输入 API Key"}
+                required={!editing}
                 autoComplete="off"
               />
               <button

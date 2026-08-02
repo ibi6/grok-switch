@@ -25,6 +25,7 @@ import type {
   RequestLog,
   TokenStats,
 } from "./types";
+import { maskSecret } from "./mask";
 
 export type { ApiResult } from "./types";
 
@@ -47,9 +48,19 @@ function isInvokeUnavailable(err: unknown): boolean {
 
 const now = () => Math.floor(Date.now() / 1000);
 
+type StoredMockProvider = Provider & { apiKey: string };
+
+function publicMockProvider(provider: StoredMockProvider): Provider {
+  const { apiKey, ...publicProvider } = provider;
+  return {
+    ...publicProvider,
+    apiKeyMasked: maskSecret(apiKey),
+  };
+}
+
 const mockSettings: Settings = {
-  grokHome: "C:\\Users\\dev\\.grok",
-  grokExecutable: "C:\\Users\\dev\\.grok\\bin\\grok.exe",
+  grokHome: "<grok-home>",
+  grokExecutable: "<grok-home>/bin/grok",
   currentMode: "provider",
   currentProviderId: "prov-1",
   currentAccountId: "acc-1",
@@ -79,12 +90,12 @@ let mockPrompts: PromptRow[] = [
   },
 ];
 
-let mockProviders: Provider[] = [
+let mockProviders: StoredMockProvider[] = [
   {
     id: "prov-1",
     name: "MyAllAPI",
     baseUrl: "https://api.example.com/v1",
-    apiKey: "sk-demo-key-provider-one-xxxx",
+    apiKey: "demo-provider-key-one",
     apiBackend: "chat_completions",
     defaultModelEntryId: "m1",
     models: [
@@ -104,7 +115,7 @@ let mockProviders: Provider[] = [
     id: "prov-2",
     name: "OpenRouter",
     baseUrl: "https://openrouter.ai/api/v1",
-    apiKey: "sk-or-v1-demo-key-abcdefghijklmnop",
+    apiKey: "demo-provider-key-two",
     apiBackend: "chat_completions",
     defaultModelEntryId: "or1",
     models: [
@@ -127,7 +138,6 @@ let mockAccounts: Account[] = [
   {
     id: "acc-1",
     name: "Studio account",
-    email: "studio@northstar.dev",
     labelColor: "#b8f35b",
     status: "ready",
     lastUsedAt: now() - 3_600,
@@ -136,7 +146,6 @@ let mockAccounts: Account[] = [
   {
     id: "acc-2",
     name: "Research lab",
-    email: "research@northstar.dev",
     labelColor: "#f5b96a",
     status: "ready",
     lastUsedAt: now() - 86_400,
@@ -182,19 +191,22 @@ const mockImportCandidates: ImportCandidate[] = [
     id: "cc-1",
     name: "Claude via Relay",
     baseUrl: "https://relay.example.com",
-    apiKey: "sk-import-demo-key-xyz",
+    apiKeyMasked: "***",
     defaultModel: "claude-sonnet-4",
     websiteUrl: "https://example.com",
     suggestedBackend: "messages",
   },
 ];
+const mockImportKeys: Record<string, string> = {
+  "cc-1": "demo-import-key",
+};
 
 let mockSkills: SkillInfo[] = [
   {
     name: "check-work",
     description: "Verify changes with a subagent",
-    path: "C:\\Users\\dev\\.grok\\skills\\check-work",
-    skillMdPath: "C:\\Users\\dev\\.grok\\skills\\check-work\\SKILL.md",
+    path: "<grok-home>/skills/check-work",
+    skillMdPath: "<grok-home>/skills/check-work/SKILL.md",
     scope: "grok",
     isSymlink: false,
     hasSkillMd: true,
@@ -203,11 +215,11 @@ let mockSkills: SkillInfo[] = [
   {
     name: "brainstorming",
     description: "Explore requirements before implementation",
-    path: "C:\\Users\\dev\\.grok\\skills\\brainstorming",
-    skillMdPath: "C:\\Users\\dev\\.grok\\skills\\brainstorming\\SKILL.md",
+    path: "<grok-home>/skills/brainstorming",
+    skillMdPath: "<grok-home>/skills/brainstorming/SKILL.md",
     scope: "grok",
     isSymlink: true,
-    linkTarget: "C:\\Users\\dev\\.codeg\\skills\\brainstorming",
+    linkTarget: "<skills-root>/brainstorming",
     hasSkillMd: true,
     editable: false,
   },
@@ -224,7 +236,7 @@ let mockMcpServers: McpServer[] = [
   {
     name: "filesystem",
     command: "npx",
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\dev"],
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "<workspace>"],
     env: {},
     headers: {},
     enabled: true,
@@ -282,21 +294,29 @@ async function mockInvoke<T>(
     }
 
     case "list_providers":
-      return ok(mockProviders.map((p) => ({ ...p, models: [...p.models] }))) as ApiResult<T>;
+      return ok(
+        mockProviders.map((p) =>
+          publicMockProvider({ ...p, models: [...p.models] }),
+        ),
+      ) as ApiResult<T>;
 
     case "upsert_provider": {
       const provider = args?.provider as Provider;
       const idx = mockProviders.findIndex((p) => p.id === provider.id);
-      if (idx >= 0) mockProviders[idx] = provider;
-      else mockProviders = [...mockProviders, provider];
-      return ok(provider) as ApiResult<T>;
+      const existing = idx >= 0 ? mockProviders[idx] : undefined;
+      const apiKey = provider.apiKey?.trim() || existing?.apiKey;
+      if (!apiKey) return err("provider API key is required") as ApiResult<T>;
+      const stored = { ...provider, apiKey } as StoredMockProvider;
+      if (idx >= 0) mockProviders[idx] = stored;
+      else mockProviders = [...mockProviders, stored];
+      return ok(publicMockProvider(stored)) as ApiResult<T>;
     }
 
     case "duplicate_provider": {
       const id = String(args?.id ?? "");
       const src = mockProviders.find((p) => p.id === id);
       if (!src) return err(`provider not found: ${id}`) as ApiResult<T>;
-      const copy: Provider = {
+      const copy: StoredMockProvider = {
         ...src,
         id: `prov-${Date.now()}`,
         name: `${src.name} (副本)`,
@@ -306,7 +326,7 @@ async function mockInvoke<T>(
         source: "manual",
       };
       mockProviders = [...mockProviders, copy];
-      return ok(copy) as ApiResult<T>;
+      return ok(publicMockProvider(copy)) as ApiResult<T>;
     }
 
     case "delete_provider": {
@@ -428,7 +448,6 @@ async function mockInvoke<T>(
       const account: Account = {
         id: `acc-${Date.now()}`,
         name,
-        email: "captured@local.dev",
         labelColor: "#8cc8ff",
         status: "ready",
         createdAt: now(),
@@ -491,7 +510,7 @@ async function mockInvoke<T>(
           "no matching import candidates for given ids",
         ) as ApiResult<T>;
       }
-      const imported: Provider[] = selected.map((c) => {
+      const imported: StoredMockProvider[] = selected.map((c) => {
         const mid = `${c.name}-${c.defaultModel}`
           .toLowerCase()
           .replace(/[^a-z0-9]+/g, "-")
@@ -501,7 +520,7 @@ async function mockInvoke<T>(
           id: `imported-${c.id}`,
           name: c.name,
           baseUrl: c.baseUrl.endsWith("/v1") ? c.baseUrl : `${c.baseUrl.replace(/\/+$/, "")}/v1`,
-          apiKey: c.apiKey,
+          apiKey: mockImportKeys[c.id] ?? "demo-import-key",
           apiBackend: c.suggestedBackend,
           defaultModelEntryId: mid,
           models: [
@@ -524,7 +543,7 @@ async function mockInvoke<T>(
         `Imported ${imported.length} provider(s) from CC Switch`,
         { count: String(imported.length) },
       );
-      return ok(imported) as ApiResult<T>;
+      return ok(imported.map(publicMockProvider)) as ApiResult<T>;
     }
 
     case "import_ccswitch_mcp_preview":
@@ -579,8 +598,11 @@ async function mockInvoke<T>(
         let n = 0;
         for (const p of arr) {
           if (!p?.name || !p?.baseUrl) continue;
+          const apiKey = p.apiKey?.trim();
+          if (!apiKey) continue;
           mockProviders.push({
             ...p,
+            apiKey,
             id: `imp-${Date.now()}-${n}`,
             createdAt: now(),
             updatedAt: now(),
@@ -831,7 +853,7 @@ async function mockInvoke<T>(
       const idx = mockProviders.findIndex((p) => p.id === id);
       if (idx < 0) return err(`provider not found: ${id}`) as ApiResult<T>;
       mockProviders[idx] = { ...mockProviders[idx], cooldownUntil: undefined };
-      return ok({ ...mockProviders[idx] }) as ApiResult<T>;
+      return ok(publicMockProvider(mockProviders[idx])) as ApiResult<T>;
     }
 
     case "list_prompts":

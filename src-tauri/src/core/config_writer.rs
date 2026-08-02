@@ -206,7 +206,7 @@ mod tests {
             id: "myallapi".into(),
             name: "MyAllAPI".into(),
             base_url: "https://myallapi.example.com/v1".into(),
-            api_key: "sk-test-key".into(),
+            api_key: "config-secret-placeholder".into(),
             api_backend: ApiBackend::ChatCompletions,
             default_model_entry_id: "myallapi-grok45".into(),
             models: vec![ModelEntry {
@@ -244,7 +244,7 @@ mod tests {
         );
         assert!(out.contains("keep-me"));
         assert!(out.contains("api_key"));
-        assert!(out.contains("sk-test-key"));
+        assert!(out.contains("config-secret-placeholder"));
         assert!(out.contains("installer = \"internal\"") || out.contains("installer = 'internal'"));
         assert!(
             out.contains("models_base_url")
@@ -322,7 +322,7 @@ model = "x"
         let mut provider = sample_provider();
         provider.api_backend = ApiBackend::Messages;
         provider.extra_headers = Some(HashMap::from([
-            ("x-api-key".into(), "sk-msg".into()),
+            ("x-api-key".into(), "messages-secret-placeholder".into()),
             ("anthropic-version".into(), "2023-06-01".into()),
         ]));
         let out = apply_provider(input, &provider).unwrap();

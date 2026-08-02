@@ -237,14 +237,14 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn ps_command_quotes_path_and_appends_model() {
-        let exe = Path::new(r"C:\Users\me\.grok\bin\grok.exe");
+        let exe = Path::new(r"<grok-home>\bin\grok.exe");
         assert_eq!(
             build_ps_command(exe, Some("gs-foo")),
-            r"& 'C:\Users\me\.grok\bin\grok.exe' -m gs-foo"
+            r"& '<grok-home>\bin\grok.exe' -m gs-foo"
         );
         assert_eq!(
             build_ps_command(exe, None),
-            r"& 'C:\Users\me\.grok\bin\grok.exe'"
+            r"& '<grok-home>\bin\grok.exe'"
         );
         // Single quotes inside the path are doubled (PowerShell escape).
         let funny = Path::new(r"C:\O'Brien\grok.exe");

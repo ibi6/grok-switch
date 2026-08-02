@@ -125,6 +125,28 @@ Artifacts:
 - `src-tauri/target/release/grok-switch.exe`
 - Installer under `src-tauri/target/release/bundle/`
 
+### Windows release 0.1.1
+
+The repository keeps the npm, Cargo, and Tauri versions synchronized at `0.1.1`.
+The reproducible Windows release workflow uses Node.js `22.14.0`, Rust `1.96.0`,
+`npm ci`, and Cargo's locked dependency resolution on a `windows-2022` runner.
+
+To publish the release, push the matching tag:
+
+```powershell
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The workflow publishes these fixed-path assets to the GitHub release:
+
+- `src-tauri/target/release/bundle/msi/*.msi`
+- `src-tauri/target/release/bundle/nsis/*.exe`
+
+No application credentials or custom secrets are included in the workflow or
+release assets. A manual workflow run builds the same assets without creating a
+GitHub release.
+
 ### Tests
 
 ```powershell

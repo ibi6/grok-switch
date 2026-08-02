@@ -107,7 +107,7 @@ mod tests {
             id: id.into(),
             name: id.into(),
             base_url: "https://x/v1".into(),
-            api_key: "sk-test-key-abcdefghijklmnop".into(),
+            api_key: "pool-secret-placeholder".into(),
             api_backend: ApiBackend::ChatCompletions,
             default_model_entry_id: "m".into(),
             models: vec![],

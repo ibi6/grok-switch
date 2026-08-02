@@ -47,7 +47,9 @@ export interface Provider {
   id: string;
   name: string;
   baseUrl: string;
-  apiKey: string;
+  /** Present only for write requests; list/IPC responses expose apiKeyMasked. */
+  apiKey?: string;
+  apiKeyMasked?: string;
   apiBackend: ApiBackend;
   defaultModelEntryId: string;
   models: ModelEntry[];
@@ -164,7 +166,7 @@ export interface ImportCandidate {
   id: string;
   name: string;
   baseUrl: string;
-  apiKey: string;
+  apiKeyMasked: string;
   defaultModel: string;
   websiteUrl?: string;
   suggestedBackend: ApiBackend;

@@ -10,6 +10,7 @@ use crate::core::ccswitch_import::{
 use crate::core::cli_status::{self, CliStatus};
 use crate::core::config_writer;
 use crate::core::health::{self, HealthResult};
+use crate::core::mask::mask_secret;
 use crate::core::paths::Paths;
 use crate::core::provider_store;
 use crate::core::settings_store;
@@ -76,6 +77,65 @@ pub struct ProviderDraft {
     pub api_key: String,
     pub api_backend: ApiBackend,
     pub model: String,
+}
+
+/// Public provider shape. Credentials stay in the local store and are never
+/// serialized into the renderer-facing command responses.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderView {
+    pub id: String,
+    pub name: String,
+    pub base_url: String,
+    pub api_key_masked: String,
+    pub api_backend: ApiBackend,
+    pub default_model_entry_id: String,
+    pub models: Vec<crate::core::types::ModelEntry>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extra_headers: Option<HashMap<String, String>>,
+    pub context_window: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub website_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
+    pub source: crate::core::types::ProviderSource,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub priority: i32,
+    pub weight: u32,
+    pub pool_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cooldown_until: Option<i64>,
+}
+
+impl From<&Provider> for ProviderView {
+    fn from(provider: &Provider) -> Self {
+        Self {
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            base_url: provider.base_url.clone(),
+            api_key_masked: if provider.api_key.is_empty() {
+                String::new()
+            } else {
+                mask_secret(&provider.api_key)
+            },
+            api_backend: provider.api_backend,
+            default_model_entry_id: provider.default_model_entry_id.clone(),
+            models: provider.models.clone(),
+            // Extra headers may contain x-api-key or other credentials.
+            extra_headers: None,
+            context_window: provider.context_window,
+            website_url: provider.website_url.clone(),
+            notes: provider.notes.clone(),
+            source: provider.source,
+            created_at: provider.created_at,
+            updated_at: provider.updated_at,
+            priority: provider.priority,
+            weight: provider.weight,
+            pool_enabled: provider.pool_enabled,
+            cooldown_until: provider.cooldown_until,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -484,6 +544,31 @@ fn test_provider_draft_flow(draft: &ProviderDraft) -> HealthResult {
     )
 }
 
+fn merge_provider_update(
+    existing: Option<&Provider>,
+    mut incoming: Provider,
+) -> Result<Provider, AppError> {
+    let replacing_key = !incoming.api_key.trim().is_empty();
+    if replacing_key {
+        incoming.api_key = incoming.api_key.trim().to_string();
+    } else if let Some(previous) = existing {
+        incoming.api_key = previous.api_key.clone();
+        // The public view intentionally omits headers, so retain them when the
+        // user leaves the key blank. A new key clears old credential headers.
+        if incoming.extra_headers.is_none() {
+            incoming.extra_headers = previous.extra_headers.clone();
+        }
+    }
+
+    if incoming.api_key.trim().is_empty() {
+        return Err(AppError::Invalid(
+            "provider API key is required for a new provider".into(),
+        ));
+    }
+
+    Ok(incoming)
+}
+
 // ─── Tauri commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -524,12 +609,23 @@ pub fn update_settings(state: State<'_, AppState>, settings: Settings) -> ApiRes
 }
 
 #[tauri::command]
-pub fn list_providers(state: State<'_, AppState>) -> ApiResult<Vec<Provider>> {
-    ApiResult::from_result(provider_store::list_providers(&state.paths))
+pub fn list_providers(state: State<'_, AppState>) -> ApiResult<Vec<ProviderView>> {
+    match provider_store::list_providers(&state.paths) {
+        Ok(providers) => ApiResult::ok(providers.iter().map(ProviderView::from).collect()),
+        Err(e) => ApiResult::err(e.to_string()),
+    }
 }
 
 #[tauri::command]
-pub fn upsert_provider(state: State<'_, AppState>, provider: Provider) -> ApiResult<Provider> {
+pub fn upsert_provider(state: State<'_, AppState>, provider: Provider) -> ApiResult<ProviderView> {
+    let existing = match provider_store::get_provider(&state.paths, &provider.id) {
+        Ok(previous) => previous,
+        Err(e) => return ApiResult::err(e.to_string()),
+    };
+    let provider = match merge_provider_update(existing.as_ref(), provider) {
+        Ok(provider) => provider,
+        Err(e) => return ApiResult::err(e.to_string()),
+    };
     if let Err(e) = config_writer::validate_provider(&provider) {
         return ApiResult::err(e.to_string());
     }
@@ -548,7 +644,7 @@ pub fn upsert_provider(state: State<'_, AppState>, provider: Provider) -> ApiRes
                     }
                 }
             }
-            ApiResult::ok(provider)
+            ApiResult::ok(ProviderView::from(&provider))
         }
         Err(e) => ApiResult::err(e.to_string()),
     }
@@ -559,7 +655,7 @@ pub fn upsert_provider(state: State<'_, AppState>, provider: Provider) -> ApiRes
 pub fn duplicate_provider(
     state: State<'_, AppState>,
     id: String,
-) -> ApiResult<Provider> {
+) -> ApiResult<ProviderView> {
     match provider_store::get_provider(&state.paths, &id) {
         Ok(Some(mut p)) => {
             p.id = uuid::Uuid::new_v4().to_string();
@@ -579,7 +675,7 @@ pub fn duplicate_provider(
                         &format!("Duplicated provider {}", p.name),
                         Some(HashMap::from([("providerId".into(), p.id.clone())])),
                     );
-                    ApiResult::ok(p)
+                    ApiResult::ok(ProviderView::from(&p))
                 }
                 Err(e) => ApiResult::err(e.to_string()),
             }
@@ -711,8 +807,11 @@ pub fn import_ccswitch_preview(state: State<'_, AppState>) -> ApiResult<Vec<Impo
 pub fn import_ccswitch_apply(
     state: State<'_, AppState>,
     ids: Vec<String>,
-) -> ApiResult<Vec<Provider>> {
-    ApiResult::from_result(import_apply_flow(&state.paths, &ids))
+) -> ApiResult<Vec<ProviderView>> {
+    match import_apply_flow(&state.paths, &ids) {
+        Ok(providers) => ApiResult::ok(providers.iter().map(ProviderView::from).collect()),
+        Err(e) => ApiResult::err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -1218,7 +1317,7 @@ pub fn stop_proxy(state: State<'_, AppState>) -> ApiResult<ProxyStatus> {
 pub fn clear_provider_cooldown(
     state: State<'_, AppState>,
     id: String,
-) -> ApiResult<Provider> {
+) -> ApiResult<ProviderView> {
     match provider_store::get_provider(&state.paths, &id) {
         Ok(Some(p)) => {
             let cleared = crate::core::pool::clear_cooldown(&p);
@@ -1231,7 +1330,7 @@ pub fn clear_provider_cooldown(
                 &format!("Cleared cooldown for {}", cleared.name),
                 Some(HashMap::from([("providerId".into(), id)])),
             );
-            ApiResult::ok(cleared)
+            ApiResult::ok(ProviderView::from(&cleared))
         }
         Ok(None) => ApiResult::err(format!("provider not found: {id}")),
         Err(e) => ApiResult::err(e.to_string()),
@@ -1308,7 +1407,7 @@ mod tests {
             id: id.into(),
             name: format!("Provider {id}"),
             base_url: "https://api.example.com/v1".into(),
-            api_key: "sk-test-key-abcdefghijklmnop".into(),
+            api_key: "provider-secret-placeholder".into(),
             api_backend: ApiBackend::ChatCompletions,
             default_model_entry_id: "m1".into(),
             models: vec![ModelEntry {
@@ -1443,7 +1542,7 @@ model = "keep"
         settings.official_default_model = "grok-build".into();
         settings_store::save_settings(&paths, &settings).unwrap();
 
-        fs::write(&paths.auth_json, r#"{"email":"a@b.com","token":"t1"}"#).unwrap();
+        fs::write(&paths.auth_json, r#"{"email":"account-email-placeholder","token":"token-placeholder"}"#).unwrap();
         fs::write(
             &paths.config_toml,
             r#"
@@ -1465,7 +1564,7 @@ default = "gs-old"
 
         assert_eq!(
             fs::read_to_string(&paths.auth_json).unwrap(),
-            r#"{"email":"a@b.com","token":"t1"}"#
+            r#"{"email":"account-email-placeholder","token":"token-placeholder"}"#
         );
         let cfg = fs::read_to_string(&paths.config_toml).unwrap();
         assert!(
@@ -1491,6 +1590,40 @@ default = "gs-old"
         let json = serde_json::to_string(&err).unwrap();
         assert!(json.contains("\"ok\":false"));
         assert!(json.contains("NEEDS_FORCE"));
+    }
+
+    #[test]
+    fn provider_view_serialization_excludes_full_api_key() {
+        let provider = sample_provider("view");
+        let view = ProviderView::from(&provider);
+        let json = serde_json::to_string(&view).unwrap();
+
+        assert!(!json.contains(&provider.api_key));
+        assert!(json.contains("apiKeyMasked"));
+    }
+
+    #[test]
+    fn empty_api_key_update_preserves_existing_secret() {
+        let existing = sample_provider("p1");
+        let mut incoming = existing.clone();
+        incoming.name = "Updated".into();
+        incoming.api_key = "  ".into();
+
+        let merged = merge_provider_update(Some(&existing), incoming).unwrap();
+
+        assert_eq!(merged.name, "Updated");
+        assert_eq!(merged.api_key, existing.api_key);
+    }
+
+    #[test]
+    fn explicit_api_key_update_replaces_existing_secret() {
+        let existing = sample_provider("p1");
+        let mut incoming = existing.clone();
+        incoming.api_key = "new-secret-placeholder".into();
+
+        let merged = merge_provider_update(Some(&existing), incoming).unwrap();
+
+        assert_eq!(merged.api_key, "new-secret-placeholder");
     }
 
     #[test]

@@ -10,7 +10,7 @@ default = "gs-old-model"
 [model.gs-old-model]
 model = "old"
 base_url = "https://old/v1"
-api_key = "sk-old"
+api_key = "legacy-key-placeholder"
 
 [model.user-custom]
 model = "keep-me"

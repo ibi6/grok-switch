@@ -24,7 +24,8 @@ use crate::core::AppError;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use std::process::Command;
 use std::time::{Duration, Instant};
 use toml_edit::{value, Array, DocumentMut, InlineTable, Item, Table, Value};
 
@@ -649,7 +650,7 @@ default = "gs-x"
 
 [model.gs-x]
 model = "grok-4.5"
-api_key = "sk-keep"
+api_key = "model-secret-placeholder"
 "#,
         )
         .unwrap();
@@ -659,7 +660,7 @@ api_key = "sk-keep"
             command: Some("npx".into()),
             args: vec!["-y".into(), "@modelcontextprotocol/server-github".into()],
             url: None,
-            env: HashMap::from([("GITHUB_PERSONAL_ACCESS_TOKEN".into(), "ghp_xxx".into())]),
+            env: HashMap::from([("GITHUB_PERSONAL_ACCESS_TOKEN".into(), "github-token-placeholder".into())]),
             headers: HashMap::new(),
             enabled: true,
             startup_timeout_sec: None,
@@ -669,9 +670,9 @@ api_key = "sk-keep"
         let raw = fs::read_to_string(&paths.config_toml).unwrap();
         assert!(raw.contains("[models]"));
         assert!(raw.contains("gs-x"));
-        assert!(raw.contains("sk-keep"));
+        assert!(raw.contains("model-secret-placeholder"));
         assert!(raw.contains("[mcp_servers.github]") || raw.contains("mcp_servers.github"));
-        assert!(raw.contains("ghp_xxx"));
+        assert!(raw.contains("github-token-placeholder"));
     }
 
     #[test]

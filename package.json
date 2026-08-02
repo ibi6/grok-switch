@@ -1,7 +1,7 @@
 {
   "name": "grok-switch",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Local desktop switcher for Grok CLI providers and official accounts",
   "type": "module",
   "repository": {
