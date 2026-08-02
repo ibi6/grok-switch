@@ -63,7 +63,7 @@ jobs:
         run: cargo fetch --locked --manifest-path src-tauri/Cargo.toml
 
       - name: Build locked Tauri bundles
-        run: npm run tauri:build -- --ci --bundles nsis,msi
+        run: npm run tauri:build -- --ci
 
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4.6.2
