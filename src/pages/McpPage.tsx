@@ -510,7 +510,7 @@ export function McpPage({
                 )}
 
                 <label className="sheet-field">
-                  <span>env（KEY=VALUE，每行一个）</span>
+                  <span>env（敏感值已掩码；保留掩码即可，每行一个）</span>
                   <textarea
                     className="mono"
                     rows={3}
@@ -522,7 +522,7 @@ export function McpPage({
 
                 {mode === "http" && (
                   <label className="sheet-field">
-                    <span>headers（KEY=VALUE）</span>
+                  <span>headers（敏感值已掩码；保留掩码即可）</span>
                     <textarea
                       className="mono"
                       rows={2}

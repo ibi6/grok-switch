@@ -302,7 +302,7 @@ export function ProvidersPage({
     }
     try {
       await navigator.clipboard.writeText(res.data);
-      notify("供应商 JSON 已复制到剪贴板");
+      notify("供应商元数据已复制（不含 API Key）");
     } catch {
       // Fallback download
       const blob = new Blob([res.data], { type: "application/json" });
@@ -312,7 +312,7 @@ export function ProvidersPage({
       a.download = `grok-switch-providers-${Date.now()}.json`;
       a.click();
       URL.revokeObjectURL(url);
-      notify("已下载 providers JSON");
+      notify("已下载供应商元数据（不含 API Key）");
     }
   };
 

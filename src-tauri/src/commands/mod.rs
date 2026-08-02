@@ -138,6 +138,64 @@ impl From<&Provider> for ProviderView {
     }
 }
 
+/// Export shape for provider metadata. Credentials are deliberately absent;
+/// the markers make it explicit that this JSON cannot carry provider secrets.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderExport {
+    export_kind: &'static str,
+    credentials_omitted: bool,
+    id: String,
+    name: String,
+    base_url: String,
+    api_backend: ApiBackend,
+    default_model_entry_id: String,
+    models: Vec<crate::core::types::ModelEntry>,
+    context_window: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    website_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    source: crate::core::types::ProviderSource,
+    created_at: i64,
+    updated_at: i64,
+    priority: i32,
+    weight: u32,
+    pool_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    cooldown_until: Option<i64>,
+}
+
+impl From<&Provider> for ProviderExport {
+    fn from(provider: &Provider) -> Self {
+        Self {
+            export_kind: "provider-metadata",
+            credentials_omitted: true,
+            id: provider.id.clone(),
+            name: provider.name.clone(),
+            base_url: provider.base_url.clone(),
+            api_backend: provider.api_backend,
+            default_model_entry_id: provider.default_model_entry_id.clone(),
+            models: provider.models.clone(),
+            context_window: provider.context_window,
+            website_url: provider.website_url.clone(),
+            notes: provider.notes.clone(),
+            source: provider.source,
+            created_at: provider.created_at,
+            updated_at: provider.updated_at,
+            priority: provider.priority,
+            weight: provider.weight,
+            pool_enabled: provider.pool_enabled,
+            cooldown_until: provider.cooldown_until,
+        }
+    }
+}
+
+fn serialize_provider_export(items: &[Provider]) -> Result<String, serde_json::Error> {
+    let exports: Vec<_> = items.iter().map(ProviderExport::from).collect();
+    serde_json::to_string_pretty(&exports)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackupInfo {
@@ -818,7 +876,17 @@ pub fn import_ccswitch_apply(
 pub fn import_ccswitch_mcp_preview(
     state: State<'_, AppState>,
 ) -> ApiResult<Vec<CcMcpCandidate>> {
-    ApiResult::from_result(ccswitch_import::preview_mcp(&state.paths.ccswitch_db))
+    match ccswitch_import::preview_mcp(&state.paths.ccswitch_db) {
+        Ok(mut candidates) => {
+            for candidate in &mut candidates {
+                for value in candidate.env.values_mut() {
+                    *value = mask_secret(value);
+                }
+            }
+            ApiResult::ok(candidates)
+        }
+        Err(e) => ApiResult::err(e.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -923,11 +991,15 @@ pub fn import_ccswitch_prompts_apply(
     }
 }
 
-/// Export all providers as a JSON string (for backup / share).
+/// Export provider metadata as a JSON string (for backup / share).
+///
+/// Credentials and extra headers are intentionally excluded. The resulting
+/// JSON is safe to copy or download as metadata. Legacy full-provider JSON
+/// remains accepted by the existing import command.
 #[tauri::command]
 pub fn export_providers_json(state: State<'_, AppState>) -> ApiResult<String> {
     match provider_store::list_providers(&state.paths) {
-        Ok(items) => match serde_json::to_string_pretty(&items) {
+        Ok(items) => match serialize_provider_export(&items) {
             Ok(s) => ApiResult::ok(s),
             Err(e) => ApiResult::err(e.to_string()),
         },
@@ -941,9 +1013,24 @@ pub fn import_providers_json(
     state: State<'_, AppState>,
     json: String,
 ) -> ApiResult<usize> {
-    let parsed: Result<Vec<Provider>, _> = serde_json::from_str(&json);
+    let parsed: Result<Vec<serde_json::Value>, _> = serde_json::from_str(&json);
     let mut items = match parsed {
-        Ok(v) => v,
+        Ok(values) => {
+            let mut providers = Vec::with_capacity(values.len());
+            for mut value in values {
+                // Metadata exports intentionally omit credentials. Import them
+                // as keyless entries so the user can add a key in the editor;
+                // never infer a credential from the masked display value.
+                if let Some(object) = value.as_object_mut() {
+                    object.entry("apiKey").or_insert_with(|| serde_json::Value::String(String::new()));
+                }
+                match serde_json::from_value::<Provider>(value) {
+                    Ok(provider) => providers.push(provider),
+                    Err(e) => return ApiResult::err(format!("invalid provider entry: {e}")),
+                }
+            }
+            providers
+        }
         Err(e) => return ApiResult::err(format!("invalid providers JSON: {e}")),
     };
     let existing = provider_store::list_providers(&state.paths).unwrap_or_default();
@@ -974,6 +1061,15 @@ pub fn import_providers_json(
         p.updated_at = chrono::Local::now().timestamp();
         if p.created_at == 0 {
             p.created_at = p.updated_at;
+        }
+        if p.api_key.trim().is_empty() {
+            let note = "API Key omitted from export; edit this provider before enabling.";
+            p.notes = Some(match p.notes.take() {
+                Some(existing) if !existing.trim().is_empty() => {
+                    format!("{existing}\n{note}")
+                }
+                _ => note.to_string(),
+            });
         }
         if provider_store::upsert_provider(&state.paths, p).is_ok() {
             count += 1;
@@ -1600,6 +1696,26 @@ default = "gs-old"
 
         assert!(!json.contains(&provider.api_key));
         assert!(json.contains("apiKeyMasked"));
+    }
+
+    #[test]
+    fn provider_export_contains_keyless_metadata_only() {
+        let mut provider = sample_provider("export");
+        provider.extra_headers = Some(HashMap::from([(
+            "x-api-key".into(),
+            "header-secret-placeholder".into(),
+        )]));
+
+        let json = serialize_provider_export(&[provider]).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        let item = &value[0];
+
+        assert_eq!(item["exportKind"], "provider-metadata");
+        assert_eq!(item["credentialsOmitted"], true);
+        assert!(item.get("apiKey").is_none());
+        assert!(item.get("extraHeaders").is_none());
+        assert!(!json.contains("provider-secret-placeholder"));
+        assert!(!json.contains("header-secret-placeholder"));
     }
 
     #[test]

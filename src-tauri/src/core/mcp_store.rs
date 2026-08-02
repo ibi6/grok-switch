@@ -33,6 +33,7 @@ const MAX_MCP_COMMAND_LEN: usize = 256;
 const MAX_MCP_ARGS: usize = 128;
 const MAX_MCP_ARG_LEN: usize = 4096;
 const MAX_MCP_ARGS_BYTES: usize = 64 * 1024;
+const MASKED_VALUE: &str = "***";
 
 /// One MCP server entry as shown in the UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -161,6 +162,21 @@ pub fn upsert_mcp_server(paths: &Paths, draft: &McpDraft) -> Result<McpServer, A
     let mut doc = parse_doc(&text)?;
     ensure_mcp_root(&mut doc);
 
+    let (existing_env, existing_headers) = doc
+        .get("mcp_servers")
+        .and_then(|i| i.as_table())
+        .and_then(|servers| servers.get(name.as_str()))
+        .and_then(|item| item.as_table())
+        .map(|table| {
+            (
+                inline_or_table_map(table.get("env")),
+                inline_or_table_map(table.get("headers")),
+            )
+        })
+        .unwrap_or_default();
+    let env = merge_masked_map(&draft.env, &existing_env);
+    let headers = merge_masked_map(&draft.headers, &existing_headers);
+
     let mut table = Table::new();
     if let Some(cmd) = draft
         .command
@@ -185,11 +201,11 @@ pub fn upsert_mcp_server(paths: &Paths, draft: &McpDraft) -> Result<McpServer, A
     {
         table["url"] = value(url);
     }
-    if !draft.env.is_empty() {
-        table["env"] = Item::Value(Value::InlineTable(map_to_inline(&draft.env)));
+    if !env.is_empty() {
+        table["env"] = Item::Value(Value::InlineTable(map_to_inline(&env)));
     }
-    if !draft.headers.is_empty() {
-        table["headers"] = Item::Value(Value::InlineTable(map_to_inline(&draft.headers)));
+    if !headers.is_empty() {
+        table["headers"] = Item::Value(Value::InlineTable(map_to_inline(&headers)));
     }
     table["enabled"] = value(draft.enabled);
     if let Some(s) = draft.startup_timeout_sec {
@@ -202,7 +218,7 @@ pub fn upsert_mcp_server(paths: &Paths, draft: &McpDraft) -> Result<McpServer, A
     doc["mcp_servers"][name.as_str()] = Item::Table(table);
     write_config_text(paths, &doc.to_string())?;
 
-    Ok(draft_to_server(&name, draft))
+    Ok(draft_to_server(&name, draft, &env, &headers))
 }
 
 pub fn delete_mcp_server(paths: &Paths, name: &str) -> Result<bool, AppError> {
@@ -381,8 +397,8 @@ fn table_to_server(name: &str, table: &Table) -> McpServer {
                 .collect()
         })
         .unwrap_or_default();
-    let env = inline_or_table_map(table.get("env"));
-    let headers = inline_or_table_map(table.get("headers"));
+    let env = mask_map(&inline_or_table_map(table.get("env")));
+    let headers = mask_map(&inline_or_table_map(table.get("headers")));
     let enabled = table
         .get("enabled")
         .and_then(|i| i.as_bool())
@@ -416,7 +432,12 @@ fn table_to_server(name: &str, table: &Table) -> McpServer {
     }
 }
 
-fn draft_to_server(name: &str, draft: &McpDraft) -> McpServer {
+fn draft_to_server(
+    name: &str,
+    draft: &McpDraft,
+    env: &HashMap<String, String>,
+    headers: &HashMap<String, String>,
+) -> McpServer {
     let transport = if draft.url.as_ref().is_some_and(|u| !u.trim().is_empty()) {
         McpTransport::Http
     } else if draft.command.as_ref().is_some_and(|c| !c.trim().is_empty()) {
@@ -429,13 +450,52 @@ fn draft_to_server(name: &str, draft: &McpDraft) -> McpServer {
         command: draft.command.clone(),
         args: draft.args.clone(),
         url: draft.url.clone(),
-        env: draft.env.clone(),
-        headers: draft.headers.clone(),
+        env: mask_map(env),
+        headers: mask_map(headers),
         enabled: draft.enabled,
         startup_timeout_sec: draft.startup_timeout_sec,
         tool_timeout_sec: draft.tool_timeout_sec,
         transport,
     }
+}
+
+fn mask_map(map: &HashMap<String, String>) -> HashMap<String, String> {
+    map.iter()
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                if value.is_empty() {
+                    String::new()
+                } else {
+                    mask_secret(value)
+                },
+            )
+        })
+        .collect()
+}
+
+fn is_masked_value(value: &str) -> bool {
+    let value = value.trim();
+    value == MASKED_VALUE || value.contains("...")
+}
+
+fn merge_masked_map(
+    incoming: &HashMap<String, String>,
+    existing: &HashMap<String, String>,
+) -> HashMap<String, String> {
+    incoming
+        .iter()
+        .map(|(key, value)| {
+            let next = if (value.trim().is_empty() || is_masked_value(value))
+                && existing.contains_key(key)
+            {
+                existing[key].clone()
+            } else {
+                value.clone()
+            };
+            (key.clone(), next)
+        })
+        .collect()
 }
 
 fn inline_or_table_map(item: Option<&Item>) -> HashMap<String, String> {
@@ -692,6 +752,38 @@ api_key = "model-secret-placeholder"
         let s = upsert_mcp_server(&paths, &draft).unwrap();
         assert_eq!(s.transport, McpTransport::Http);
         assert_eq!(s.url.as_deref(), Some("http://localhost:5000/api/mcp"));
+    }
+
+    #[test]
+    fn mcp_views_mask_values_and_preserve_masked_updates() {
+        let (_tmp, paths) = setup();
+        let secret = "mcp-secret-placeholder";
+        let draft = McpDraft {
+            name: "secure".into(),
+            command: Some("npx".into()),
+            args: vec![],
+            url: None,
+            env: HashMap::from([("ACCESS_TOKEN".into(), secret.into())]),
+            headers: HashMap::from([("Authorization".into(), "Bearer header-secret-placeholder".into())]),
+            enabled: true,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        };
+        let view = upsert_mcp_server(&paths, &draft).unwrap();
+        assert!(!serde_json::to_string(&view).unwrap().contains(secret));
+        assert_eq!(view.env.get("ACCESS_TOKEN").map(String::as_str), Some("mcp-se...lder"));
+
+        let masked = McpDraft {
+            env: HashMap::from([("ACCESS_TOKEN".into(), "***".into())]),
+            headers: HashMap::from([("Authorization".into(), "Bearer h...lace".into())]),
+            ..draft.clone()
+        };
+        upsert_mcp_server(&paths, &masked).unwrap();
+        let raw = fs::read_to_string(&paths.config_toml).unwrap();
+        assert!(raw.contains(secret));
+        assert!(raw.contains("Bearer header-secret-placeholder"));
+        let listed = list_mcp_servers(&paths).unwrap().remove(0);
+        assert!(!serde_json::to_string(&listed).unwrap().contains(secret));
     }
 
     #[test]
