@@ -426,9 +426,9 @@ fn is_reparse_point(path: &Path) -> bool {
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
-        return fs::symlink_metadata(path)
+        fs::symlink_metadata(path)
             .map(|metadata| metadata.file_attributes() & 0x400 != 0)
-            .unwrap_or(false);
+            .unwrap_or(false)
     }
     #[cfg(not(windows))]
     {
